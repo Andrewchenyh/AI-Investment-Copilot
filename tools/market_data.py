@@ -13,7 +13,7 @@ Responsibilities:
 import yfinance as yf
 import pandas as pd
 import numpy as np
-
+from functools import lru_cache
 
 class MarketDataEngine:
     """
@@ -26,28 +26,30 @@ class MarketDataEngine:
     # --------------------------------------------------
     # Stock Metadata
     # --------------------------------------------------
-
+    @lru_cache(maxsize=100)
     def get_stock_info(self, ticker: str) -> dict:
         """
         Retrieve company metadata from Yahoo Finance.
         """
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
 
-        stock = yf.Ticker(ticker)
-        info = stock.info
+            return {
+                "ticker": ticker.upper(),
+                "company_name": info.get("longName", "N/A"),
+                "sector": info.get("sector", "N/A"),
+                "industry": info.get("industry", "N/A"),
+                "market_cap": info.get("marketCap", "N/A"),
+                "pe_ratio": info.get("trailingPE", "N/A"),
+                "forward_pe": info.get("forwardPE", "N/A"),
+                "profit_margin": info.get("profitMargins", "N/A"),
+                "revenue_growth": info.get("revenueGrowth", "N/A"),
+            }
+        except Exception as e:
+            print(f"Error fetching info for {ticker}: {e}")
+            return {"ticker": ticker, "error": "Data unavailable"}
 
-        data = {
-            "ticker": ticker.upper(),
-            "company_name": info.get("longName"),
-            "sector": info.get("sector"),
-            "industry": info.get("industry"),
-            "market_cap": info.get("marketCap"),
-            "pe_ratio": info.get("trailingPE"),
-            "forward_pe": info.get("forwardPE"),
-            "profit_margin": info.get("profitMargins"),
-            "revenue_growth": info.get("revenueGrowth"),
-        }
-
-        return data
 
     # --------------------------------------------------
     # Historical Price Data
@@ -63,16 +65,21 @@ class MarketDataEngine:
         Retrieve historical price data.
         """
 
+        
         stock = yf.Ticker(ticker)
-
         df = stock.history(
             period=period,
             interval=interval
         )
+        if df.empty:
+            return pd.DataFrame()
 
         df = df.reset_index()
         df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
-
+        
+        if df["Close"].isnull().any():
+            df["Close"] = df["Close"].ffill() 
+            
         return df
 
     # --------------------------------------------------
@@ -85,7 +92,10 @@ class MarketDataEngine:
         """
 
         df = df.copy()
-
+        
+        if df.empty:
+            return pd.DataFrame()
+        
         df["return"] = df["Close"].pct_change()
 
         return df
@@ -98,32 +108,14 @@ class MarketDataEngine:
         """
         Compute annualized volatility.
         """
-
+        if df.empty:
+            return 0.00
         returns = df["Close"].pct_change().dropna()
 
         volatility = returns.std() * np.sqrt(252)
 
         return float(volatility)
 
-    # --------------------------------------------------
-    # Moving Averages
-    # --------------------------------------------------
-
-    def add_moving_averages(
-        self,
-        df: pd.DataFrame,
-        windows=(20, 50, 200)
-    ) -> pd.DataFrame:
-        """
-        Add moving averages to price dataframe.
-        """
-
-        df = df.copy()
-
-        for window in windows:
-            df[f"ma_{window}"] = df["Close"].rolling(window).mean()
-
-        return df
 
     # --------------------------------------------------
     # Complete Data Pipeline
@@ -139,8 +131,6 @@ class MarketDataEngine:
         prices = self.get_price_history(ticker)
 
         prices = self.compute_returns(prices)
-
-        prices = self.add_moving_averages(prices)
 
         volatility = self.compute_volatility(prices)
 
