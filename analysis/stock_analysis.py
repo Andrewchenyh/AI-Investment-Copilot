@@ -13,7 +13,10 @@ Indicators included:
 """
 
 import pandas as pd
-
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from tools.market_data import MarketDataEngine
 
 class TechnicalIndicators:
     """
@@ -105,8 +108,7 @@ class TechnicalIndicators:
     @staticmethod
     def bollinger_bands(
         df: pd.DataFrame,
-        window: int = 20,
-        num_std: int = 2
+        window: int = 20
     ) -> pd.DataFrame:
         """
         Bollinger Bands
@@ -124,13 +126,13 @@ class TechnicalIndicators:
         sma = df["Close"].rolling(window=window).mean()
         std = df["Close"].rolling(window=window).std()
 
-        upper_band = sma + (std * num_std)
-        lower_band = sma - (std * num_std)
+        upper_band = sma + (std * 2)
+        lower_band = sma - (std * 2)
 
         return pd.DataFrame({
-            "BB_Middle": sma,
-            "BB_Upper": upper_band,
-            "BB_Lower": lower_band
+            f"BB_{window}_Middle": sma,
+            f"BB_{window}_Upper": upper_band,
+            f"BB_{window}_Lower": lower_band
         })
 
 
@@ -155,7 +157,31 @@ def add_all_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     macd_data = indicators.macd(df)
     df = df.join(macd_data) 
     
-    for w in config.get('bb_windows', [20]):
-        df[f'BB_{w}'] = indicators.bollinger_bands(df, w)
+    for w in config.get('bb_windows', [20]):    
+        bb_data = indicators.bollinger_bands(df, w)
+        df = df.join(bb_data) 
     
     return df
+
+
+# Test run
+
+if __name__ == "__main__":
+
+    engine = MarketDataEngine()
+
+    ticker = "AAPL"
+
+    data = engine.get_full_stock_data(ticker)
+
+    df = data["price_data"]
+    config = {
+        ticker:'AAPL',
+        'sma_windows':[50],
+        'ema_windows':[20],
+        'rsi_windows':[7],
+        'bb_windows':[20]
+
+    }
+    print(add_all_indicators(df, config))
+    
