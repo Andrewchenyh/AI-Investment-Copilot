@@ -1,100 +1,86 @@
-"""
-stock_agent.py
-
-AI agent that interprets user stock queries using the Gemini API
-and decides which analysis functions to run.
-
-Responsibilities:
-- Parse user intent
-- Extract ticker and indicator settings
-- Fetch stock data
-- Compute technical indicators
-- Return structured analysis
-"""
-
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import json
-import google.generativeai as genai
-
-
+from pydantic import BaseModel, Field
+from typing import List, Optional
+# UPDATED: Import the new SDK
+from google import genai
 from tools.market_data import MarketDataEngine
 from analysis.stock_analysis import add_all_indicators
 
+# Define the expected JSON structure using Pydantic
+class StockQuerySchema(BaseModel):
+    ticker: str
+    sma_windows: List[int] = Field(default_factory=lambda: [20])
+    ema_windows: List[int] = Field(default_factory=lambda: [20])
+    rsi_windows: List[int] = Field(default_factory=lambda: [14])
+    bb_windows: List[int] = Field(default_factory=lambda: [20])
+
 class StockAgent:
-
     def __init__(self):
-
-        # Load Gemini API key
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-        # Initialize model
-        self.model = genai.GenerativeModel("gemini-1.5-flash")
-
-    def interpret_query(self, query: str) -> dict:
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model_id = "gemini-2.5-flash" 
+        self.engine = MarketDataEngine()
+        
+    def interpret_query(self, query: str) -> StockQuerySchema:
         """
-        Ask Gemini to convert a natural language query
-        into structured parameters.
+        Uses Gemini's response_schema to guarantee valid JSON output.
         """
-
+       
         prompt = f"""
-                    You are a financial assistant.
+                    You are a financial analysis assistant.
 
-                    Extract structured parameters from the user request.
+                    Extract structured parameters from the user's request.
 
-                    Return JSON with the following fields:
+                    Rules:
+                    - Always return a valid ticker symbol.
+                    - If no indicator windows are specified, use defaults.
+                    - Windows should be integers.
 
-                    ticker: stock ticker
-                    sma_window: integer or null
-                    ema_window: integer or null
-                    rsi_window: integer or null
-                    analysis: short description of what the user wants
+                    Defaults:
+                    SMA: [20]
+                    EMA: [20]
+                    RSI: [14]
+                    Bollinger Bands: [20]
 
                     User request:
                     {query}
-
-                    Return ONLY JSON.
                 """
+        
+        response = self.client.models.generate_content(
+            model=self.model_id,
+            contents=prompt,
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': StockQuerySchema,
+            },
+        )
+        
+        return StockQuerySchema.model_validate_json(response.text) # type: ignore
 
-        response = self.model.generate_content(prompt)
+    def run_analysis(self, params: StockQuerySchema):
+        data = self.engine.get_full_stock_data(ticker=params.ticker)
+        df = data["price_data"]
 
-        try:
-            result = json.loads(response.text)
-        except Exception:
-            raise ValueError("Failed to parse Gemini response")
-
-        return result
-
-    def run_analysis(self, config: dict):
-        """
-        Run stock analysis using extracted parameters.
-        """
-
-        ticker = config.get("ticker")
-
-        sma = config.get("sma_window") or 20
-        ema = config.get("ema_window") or 20
-        rsi = config.get("rsi_window") or 14
-
-        # Fetch data
-        engine = MarketDataEngine()
-        data = engine.get_full_stock_data(ticker=ticker)
-        df = data["price_date"]
-
-        # Add indicators
-        df = add_all_indicators(df, config)
-
-        return df.tail()
+        df = add_all_indicators(df, params.model_dump())      
+        
+        return df.tail(1)
 
     def ask(self, query: str):
-        """
-        Main entry point for the agent.
-        """
+        try:
+            params = self.interpret_query(query)
+            result = self.run_analysis(params)
+            return {"status": "success", "data": result.to_dict()}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+        
 
-        params = self.interpret_query(query)
-
-        result = self.run_analysis(params)
-
-        return {
-            "parameters": params,
-            "analysis_result": result.to_dict()
-        }
+# Test run
+if __name__ == '__main__':
+    agent = StockAgent()
+    query = "Analyze Apple using RSI 7 and a 50 day moving average"
+    response = agent.ask(query)
+    print(response)
+    
