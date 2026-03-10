@@ -134,28 +134,28 @@ class TechnicalIndicators:
         })
 
 
-def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
+
+def add_all_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """
-    Convenience function to append all indicators to a dataframe.
-
-    Parameters
-    ----------
-    df : DataFrame
-
-    Returns
-    -------
-    DataFrame with indicators added
+    Adds technical indicators with configurable parameters.
     """
-
+    df = df.copy()
     indicators = TechnicalIndicators()
+   
+    # Technical Indicators with single column returns
+    for w in config.get('sma_windows', [20]):
+        df[f'SMA_{w}'] = indicators.sma(df, w)
+ 
+    for w in config.get('ema_windows', [20]):
+        df[f'EMA_{w}'] = indicators.ema(df, w)
+                
+    for w in config.get('rsi_windows', [14]):
+        df[f'RSI_{w}'] = indicators.rsi(df, w)
 
-    df["SMA_20"] = indicators.sma(df, 20)
-    df["EMA_20"] = indicators.ema(df, 20)
-    df["RSI_14"] = indicators.rsi(df, 14)
-
-    macd_df = indicators.macd(df)
-    bb_df = indicators.bollinger_bands(df)
-
-    df = pd.concat([df, macd_df, bb_df], axis=1)
-
+    macd_data = indicators.macd(df)
+    df = df.join(macd_data) 
+    
+    for w in config.get('bb_windows', [20]):
+        df[f'BB_{w}'] = indicators.bollinger_bands(df, w)
+    
     return df
