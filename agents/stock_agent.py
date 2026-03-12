@@ -2,13 +2,12 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import json
 from pydantic import BaseModel, Field
-from typing import List, Optional
-# UPDATED: Import the new SDK
+from typing import List
 from google import genai
 from tools.market_data import MarketDataEngine
 from analysis.stock_analysis import add_all_indicators
+from dotenv import load_dotenv
 
 # Define the expected JSON structure using Pydantic
 class StockQuerySchema(BaseModel):
@@ -20,7 +19,9 @@ class StockQuerySchema(BaseModel):
 
 class StockAgent:
     def __init__(self):
-        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        load_dotenv() 
+        api_key = os.getenv("GEMINI_API_KEY")
+        self.client = genai.Client(api_key=api_key)
         self.model_id = "gemini-2.5-flash" 
         self.engine = MarketDataEngine()
         
