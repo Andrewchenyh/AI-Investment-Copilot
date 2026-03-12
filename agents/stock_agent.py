@@ -73,7 +73,7 @@ class StockAgent:
         try:
             params = self.interpret_query(query)
             result = self.run_analysis(params)
-            return {"status": "success", "data": result.to_dict()}
+            return {"status": "success", "ticker": params.ticker, "data": result.to_dict()}
         except Exception as e:
             return {"status": "error", "message": str(e)}
         
