@@ -1,0 +1,24 @@
+from fastapi import FastAPI, HTTPException
+
+from api.schemas import AnalyzeRequest, AnalyzeResponse
+from api.service import run_analysis
+
+
+app = FastAPI(
+    title="AI Investment Copilot API",
+    version="0.1.0",
+    description="API for running the AI Investment Copilot ReAct agent.",
+)
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {"message": "AI Investment Copilot API is running."}
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+    try:
+        return await run_analysis(request.query)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
