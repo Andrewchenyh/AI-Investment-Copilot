@@ -82,6 +82,31 @@ class MarketDataEngine:
             
         return df
 
+
+    def get_option_expirations(self, ticker: str) -> list[str]:
+        """
+        Retrieve available option expiration dates for a ticker.
+        """
+        stock = yf.Ticker(ticker)
+        expirations = stock.options
+        return list(expirations)
+
+    def get_options_chain(self, ticker: str, expiration: str) -> dict:
+        """
+        Retrieve the option chain for a ticker and expiration date.
+
+        Returns a dictionary with 'calls' and 'puts' DataFrames.
+        """
+        stock = yf.Ticker(ticker)
+        chain = stock.option_chain(expiration)
+
+        calls = chain.calls.copy()
+        puts = chain.puts.copy()
+
+        return {
+            "calls": calls,
+            "puts": puts,
+        }
     # --------------------------------------------------
     # Return Calculations
     # --------------------------------------------------
