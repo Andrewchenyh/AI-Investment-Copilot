@@ -12,10 +12,10 @@ from dotenv import load_dotenv
 # Define the expected JSON structure using Pydantic
 class StockQuerySchema(BaseModel):
     ticker: str
-    sma_windows: List[int] = Field(default_factory=lambda: [20])
-    ema_windows: List[int] = Field(default_factory=lambda: [20])
-    rsi_windows: List[int] = Field(default_factory=lambda: [14])
-    bb_windows: List[int] = Field(default_factory=lambda: [20])
+    sma_windows: List[int] | None = None
+    ema_windows: List[int] | None = None
+    rsi_windows: List[int] | None = None
+    bb_windows: List[int] | None = None
 
 class StockAgent:
     def __init__(self):
