@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
+from api.auth import require_api_key
 from api.schemas import AnalyzeRequest, AnalyzeResponse
-from api.service import run_analysis
+from api.service import run_analysis, stream_analysis
 
 
 app = FastAPI(
@@ -17,8 +19,25 @@ async def root() -> dict[str, str]:
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+async def analyze_json(
+    request: AnalyzeRequest,
+    _: str = Depends(require_api_key),
+) -> AnalyzeResponse:
     try:
         return await run_analysis(request.query)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/analyze/stream")
+async def analyze_stream(
+    request: AnalyzeRequest,
+    _: str = Depends(require_api_key),
+) -> StreamingResponse:
+    try:
+        return StreamingResponse(
+            stream_analysis(request.query),
+            media_type="text/event-stream",
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
