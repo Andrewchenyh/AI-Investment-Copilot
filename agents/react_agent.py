@@ -9,24 +9,27 @@ from agents.schemas import AgentStep, ToolObservation
 
 
 class ReActAgent:
-    def __init__(self, tool_registry, model_id: str = "gemini-2.5-flash", max_steps: int = 6):
+    def __init__(self, tool_registry, model_id: str = "gemini-3.1-flash-lite", max_steps: int = 6):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set.")
+
         self.client = genai.Client(api_key=api_key)
         self.model_id = model_id
         self.tool_registry = tool_registry
         self.max_steps = max_steps
 
-    def _build_system_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
+    def _build_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
         tool_descriptions = self.tool_registry.describe_tools()
 
         return f"""
-                You are an investment copilot that follows a ReAct workflow.
+                You are an investment copilot using a ReAct workflow.
 
                 Your job is to answer the user's question by deciding whether to call tools.
-                You must only use the tools provided to you.
-                Do not invent market data, prices, volatilities, option premiums, or dates.
-                Use only numbers returned by tool observations.
+                You must only use the tools provided.
+                Do not invent prices, premiums, volatility values, dates, or option details.
+                Use only tool observations when giving the final answer.
 
                 Available tools:
                 {tool_descriptions}
@@ -34,29 +37,30 @@ class ReActAgent:
                 User query:
                 {user_query}
 
-                Previous trace:
+                Trace so far:
                 {json.dumps(trace, indent=2)}
 
-                Return JSON matching this structure:
+                Return JSON with this structure:
                 {{
-                "thought": "short explanation of why you chose this step",
+                "thought": "brief reason for the next step",
                 "action_type": "tool_call" or "final_answer",
                 "tool_call": {{
-                    "tool_name": "name of tool",
-                    "tool_args": {{}}
+                    "tool_name": "tool name here",
+                    "tool_args_json": "{{\\"ticker\\": \\"MSFT\\"}}"
                 }},
-                "final_answer": "only when action_type is final_answer"
+                "final_answer": "only fill this when action_type is final_answer"
                 }}
 
                 Rules:
-                - Choose exactly one action per turn.
-                - If you need more information, use a tool_call.
-                - If you have enough evidence, return final_answer.
-                - Final answers must be grounded in tool outputs only.
+                - Choose exactly one action each turn.
+                - If you still need data, choose tool_call.
+                - If you have enough evidence, choose final_answer.
+                - Final answers must cite the relevant observed numbers.
+                - tool_args_json must be a valid JSON object encoded as a string.
                 """
 
     def _llm_step(self, user_query: str, trace: list[dict[str, Any]]) -> AgentStep:
-        prompt = self._build_system_prompt(user_query, trace)
+        prompt = self._build_prompt(user_query, trace)
 
         response = self.client.models.generate_content(
             model=self.model_id,
@@ -67,7 +71,18 @@ class ReActAgent:
             },
         )
 
-        return AgentStep.model_validate_json(response.text) # type: ignore
+        return AgentStep.model_validate_json(response.text)
+
+    def _parse_tool_args(self, tool_args_json: str) -> dict[str, Any]:
+        try:
+            parsed = json.loads(tool_args_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"tool_args_json is not valid JSON: {exc}") from exc
+
+        if not isinstance(parsed, dict):
+            raise ValueError("tool_args_json must decode to a JSON object.")
+
+        return parsed
 
     def _execute_tool(self, tool_name: str, tool_args: dict[str, Any]) -> ToolObservation:
         try:
@@ -88,47 +103,126 @@ class ReActAgent:
             )
 
     def ask(self, user_query: str) -> dict[str, Any]:
+        final_result: dict[str, Any] | None = None
+
+        for event in self.run_with_events(user_query):
+            if event["event"] == "final_answer":
+                final_result = event["data"]
+            elif event["event"] == "error":
+                final_result = event["data"]
+
+        if final_result is None:
+            return {
+                "status": "error",
+                "message": "Agent terminated without producing a final result.",
+                "trace": [],
+            }
+
+        return final_result
+    
+    
+    def run_with_events(self, user_query: str):
         trace: list[dict[str, Any]] = []
+        
+        yield {
+            "event": "start",
+            "data": {
+                "query": user_query,
+                "max_steps": self.max_steps,
+            },
+        }
 
         for step_number in range(1, self.max_steps + 1):
             agent_step = self._llm_step(user_query=user_query, trace=trace)
 
-            trace.append({
+            thought_payload = {
                 "step": step_number,
                 "thought": agent_step.thought,
                 "action_type": agent_step.action_type,
-            })
+            }
+            trace.append(thought_payload)
+
+            yield {
+                "event": "thought",
+                "data": thought_payload,
+            }
 
             if agent_step.action_type == "final_answer":
-                return {
+                final_payload = {
                     "status": "success",
                     "answer": agent_step.final_answer,
                     "trace": trace,
                 }
+                yield {
+                    "event": "final_answer",
+                    "data": final_payload,
+                }
+                return
 
-            if agent_step.action_type == "tool_call":
-                if agent_step.tool_call is None:
-                    return {
-                        "status": "error",
-                        "message": "LLM returned tool_call action without tool_call payload.",
-                        "trace": trace,
-                    }
+            if agent_step.tool_call is None:
+                error_payload = {
+                    "status": "error",
+                    "message": "Model requested a tool call without tool details.",
+                    "trace": trace,
+                }
+                yield {
+                    "event": "error",
+                    "data": error_payload,
+                }
+                return
 
-                observation = self._execute_tool(
-                    tool_name=agent_step.tool_call.tool_name,
-                    tool_args=agent_step.tool_call.tool_args,
-                )
+            yield {
+                "event": "tool_call",
+                "data": {
+                    "step": step_number,
+                    "tool_name": agent_step.tool_call.tool_name,
+                    "tool_args_json": agent_step.tool_call.tool_args_json,
+                },
+            }
 
-                trace.append({
-                    "tool_name": observation.tool_name,
-                    "tool_args": observation.tool_args,
-                    "observation": observation.result,
-                    "success": observation.success,
-                    "error": observation.error,
-                })
+            try:
+                tool_args = self._parse_tool_args(agent_step.tool_call.tool_args_json)
+            except ValueError as exc:
+                error_observation = {
+                    "tool_name": agent_step.tool_call.tool_name,
+                    "tool_args_json": agent_step.tool_call.tool_args_json,
+                    "observation": {},
+                    "success": False,
+                    "error": str(exc),
+                }
+                trace.append(error_observation)
 
-        return {
+                yield {
+                    "event": "tool_result",
+                    "data": error_observation,
+                }
+                continue
+
+            observation = self._execute_tool(
+                tool_name=agent_step.tool_call.tool_name,
+                tool_args=tool_args,
+            )
+
+            observation_payload = {
+                "tool_name": observation.tool_name,
+                "tool_args": observation.tool_args,
+                "observation": observation.result,
+                "success": observation.success,
+                "error": observation.error,
+            }
+            trace.append(observation_payload)
+
+            yield {
+                "event": "tool_result",
+                "data": observation_payload,
+            }
+
+        error_payload = {
             "status": "error",
             "message": f"Agent exceeded max_steps={self.max_steps} without reaching a final answer.",
             "trace": trace,
+        }
+        yield {
+            "event": "error",
+            "data": error_payload,
         }
