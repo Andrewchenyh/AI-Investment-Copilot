@@ -4,9 +4,9 @@ from pydantic import BaseModel, Field
 
 class ToolCall(BaseModel):
     tool_name: str = Field(..., description="Name of the tool to execute")
-    tool_args: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Arguments to pass into the tool"
+    tool_args_json: str = Field(
+        default="{}",
+        description="JSON object string containing the arguments to pass into the tool"
     )
 
 
