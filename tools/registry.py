@@ -1,6 +1,6 @@
 from typing import Any, Callable
 from pydantic import BaseModel
-
+from tools.cache import get_cached_tool_result, set_cached_tool_result
 
 class RegisteredTool:
     def __init__(
@@ -43,13 +43,29 @@ class ToolRegistry:
     def execute(self, tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any]:
         tool = self.get_tool(tool_name)
 
+        cacheable_tools = {
+            "get_current_price",
+            "get_historical_volatility",
+            "get_options_chain",
+        }
+
+        if tool_name in cacheable_tools:
+            cached_result = get_cached_tool_result(tool_name, tool_args)
+            if cached_result is not None:
+                return cached_result
+
         validated_input = tool.input_model.model_validate(tool_args)
         result = tool.func(validated_input)
 
         if not isinstance(result, tool.output_model):
             result = tool.output_model.model_validate(result)
 
-        return result.model_dump()
+        result_dict = result.model_dump()
+
+        if tool_name in cacheable_tools:
+            set_cached_tool_result(tool_name, tool_args, result_dict, ttl_seconds=300)
+
+        return result_dict
 
     def describe_tools(self) -> str:
         return "\n\n".join(tool.describe() for tool in self._tools.values())
