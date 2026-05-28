@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from api.auth import require_api_key
 from api.schemas import AnalyzeRequest, AnalyzeResponse
 from api.service import run_analysis, stream_analysis
-
+from api.rate_limit import enforce_rate_limit
 
 app = FastAPI(
     title="AI Investment Copilot API",
@@ -22,9 +22,10 @@ async def root() -> dict[str, str]:
 async def analyze_json(
     request: AnalyzeRequest,
     _: str = Depends(require_api_key),
+    __: None = Depends(enforce_rate_limit),
 ) -> AnalyzeResponse:
     try:
-        return await run_analysis(request.query)
+        return await run_analysis(request.query, session_id=request.session_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -33,10 +34,11 @@ async def analyze_json(
 async def analyze_stream(
     request: AnalyzeRequest,
     _: str = Depends(require_api_key),
+    __: None = Depends(enforce_rate_limit),
 ) -> StreamingResponse:
     try:
         return StreamingResponse(
-            stream_analysis(request.query),
+            stream_analysis(request.query, session_id=request.session_id),
             media_type="text/event-stream",
         )
     except Exception as exc:
