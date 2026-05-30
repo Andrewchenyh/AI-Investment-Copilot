@@ -9,7 +9,7 @@ from agents.schemas import AgentStep, ToolObservation
 
 
 class ReActAgent:
-    def __init__(self, tool_registry, model_id: str = "gemini-3.1-flash-lite", max_steps: int = 6):
+    def __init__(self, tool_registry, model_id: str = "gemini-3.1-flash-lite", max_steps: int = 10):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
