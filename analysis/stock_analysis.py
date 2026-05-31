@@ -56,10 +56,15 @@ class TechnicalIndicators:
         """
         Relative Strength Index (RSI)
 
-        Measures momentum on a scale from 0–100.
+        Measures momentum on a scale from 0-100.
         Typically:
         - >70 = overbought
         - <30 = oversold
+
+        Edge cases:
+        - flat prices after the warmup window return 50
+        - no losses with gains returns 100
+        - losses with no gains returns 0
         """
         delta = df["Close"].diff()
 
@@ -70,8 +75,12 @@ class TechnicalIndicators:
         avg_loss = loss.rolling(window=window).mean()
 
         rs = avg_gain / avg_loss
-
         rsi = 100 - (100 / (1 + rs))
+
+        rsi = rsi.mask((avg_gain == 0) & (avg_loss == 0), 50)
+        rsi = rsi.mask((avg_gain > 0) & (avg_loss == 0), 100)
+        rsi = rsi.mask((avg_gain == 0) & (avg_loss > 0), 0)
+
         return rsi
 
     @staticmethod
