@@ -1,182 +1,188 @@
-# 📈 AI Stock Copilot
+# AI Investment Copilot
 
-An AI-powered investment research assistant that helps users understand **stocks, market news, and portfolio risk** through automated data analysis and natural language explanations.
-
-This project combines **financial data pipelines, quantitative analysis, and large language models (LLMs)** to create a practical decision-support tool for investors.
-
-Instead of simply showing numbers, the copilot analyzes market data and **generates clear insights and explanations**.
+> An agentic stock analysis system built on a **ReAct (Reason + Act) loop** — not a chatbot wrapper. The agent reasons about your query, selects and executes financial tools, observes results, and iterates until it can ground a final answer in real data.
 
 ---
 
-# 🚀 Project Vision
+## What it does
 
-Modern investors face three major challenges:
+Ask a question like *"Is it a good time to write a cash-secured put on MSFT?"* and the agent autonomously:
 
-- Too much **financial data**
-- Too much **market news**
-- Difficulty understanding **portfolio risk**
-
-AI Stock Copilot aims to solve this by acting as an **intelligent financial research assistant** that can:
-
-- Analyze individual stocks
-- Summarize and interpret market news
-- Evaluate portfolio risk and diversification
-
-The goal is to build a system that feels closer to a **Bloomberg-style research assistant powered by AI** rather than a simple stock dashboard.
+1. Reasons about what information it needs
+2. Calls the appropriate financial tools (price, volatility, options chain, quant metrics)
+3. Observes each result and decides the next step
+4. Produces a final answer cited entirely from tool outputs — no hallucinated numbers
 
 ---
 
-# 🧠 Key Features
-
-## 1. Stock Analysis
-
-Analyze any publicly traded company using real market data.
-
-The system retrieves financial data and computes key metrics such as:
-
-- Price history
-- Volatility
-- Moving averages
-- Revenue growth
-- Profit margins
-- Valuation ratios
-
-The AI then generates a **plain-English investment summary** explaining the company's financial condition and valuation.
-
-
----
-
-## 2. Market News Intelligence
-
-Markets move quickly, and understanding **why** a stock moves is often difficult.
-
-The News Intelligence module:
-
-1. Collects recent financial news articles
-2. Performs sentiment analysis
-3. Generates concise summaries
-
-The AI copilot highlights key developments affecting a company or sector.
-
-
----
-
-## 3. Portfolio Analysis
-
-Users can upload or input their investment portfolio.
-
-The system calculates:
-
-- Portfolio return
-- Volatility
-- Sharpe ratio
-- Maximum drawdown
-- Sector allocation
-
-It then generates **risk insights and diversification suggestions**.
-
-# 🏗️ System Architecture
-
-The project is designed using a modular architecture so that new tools and analysis modules can be added easily.
+## Architecture
 
 ```
-User Input
-   │
-   ▼
-AI Copilot Agent
-   │
-   ├── Stock Analysis Module
-   ├── News Intelligence Module
-   └── Portfolio Analysis Module
-   │
-   ▼
-Financial Data APIs
-   │
-   ▼
-Quantitative Analysis + AI Explanation
-   │
-   ▼
-User Dashboard
+User Query
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│             FastAPI Backend             │
+│  POST /analyze  │  POST /compare        │
+│  GET /history/{session_id}              │
+└────────────────┬────────────────────────┘
+                 │  SSE stream
+                 ▼
+┌─────────────────────────────────────────┐
+│           ReAct Agent Loop              │
+│  reason → select tool → execute →      │
+│  observe → repeat or finalize          │
+│                                         │
+│  Guardrails: max iterations, tool       │
+│  registry, timeout/retry, grounding     │
+└──────┬────────────────────────┬─────────┘
+       │                        │
+       ▼                        ▼
+┌─────────────┐        ┌────────────────┐
+│  Tool Layer │        │  Redis Cache   │
+│  (Pydantic  │        │  price history │
+│   schemas)  │        │  quotes, chain │
+└─────────────┘        └────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────┐
+│             Tool Registry                │
+│  get_price_history                       │
+│  get_current_price                       │
+│  get_options_chain                       │
+│  get_historical_volatility               │
+│  compute_momentum                        │
+│  compute_statistical_divergence          │
+│  compute_cash_secured_put_metrics  ★     │
+│  compute_covered_call_metrics      ★     │
+└──────────────────────────────────────────┘
+
+★ Quant tools combining spot, vol, premium, break-even,
+  annualized yield, and OTM probability
 ```
 
+The Streamlit frontend runs in **client-only mode** — it calls the FastAPI backend over HTTP/SSE and contains no agent logic.
 
 ---
 
-# 🛠️ Tech Stack
+## Key Features
 
-### Programming Language
+### ReAct Agent Loop
+The agent follows a strict Reason → Act → Observe cycle with guardrails: a maximum iteration count, an explicit allowed-tool registry, invalid tool handling, and a rule that the final answer must cite tool outputs only. No hardcoded analysis sequences.
 
-- Python
+### Strict Tool Contracts
+Every tool has a Pydantic input and output schema. The agent cannot pass malformed arguments or silently swallow bad responses — schema violations surface immediately as structured errors.
 
-### Data & Quantitative Analysis
+### Options / Quant Tools
+`analyze_cash_secured_put_opportunity` is the standout tool. Given a ticker, strike, and expiry, it combines:
+- Current spot price
+- Implied or historical volatility
+- Premium and break-even
+- Annualized yield
+- Probability of the option finishing OTM (profitable for the seller)
 
-- pandas
-- numpy
-- scikit-learn
-- ta (technical indicators)
+### SSE Streaming
+The backend emits a structured event stream so the frontend can render agent progress in real time:
 
-### Financial Data
+```
+event: thought
+event: tool_call_started
+event: tool_call_finished
+event: final_answer
+```
 
-- Yahoo Finance API (via `yfinance`)
-- Financial news APIs
-
-### AI & Natural Language Processing
-
-- LLM API (OpenAI / Gemini)
-- News summarization
-- Sentiment analysis
-
-### Visualization
-
-- Plotly / Matplotlib
-
-### Interface
-
-- Streamlit (interactive dashboard)
+### Redis Caching & Rate Limiting
+Repeated ticker lookups hit Redis instead of the data provider. Rate limiting is enforced at 10 requests/min per API key.
 
 ---
 
-# 🎯 Project Goals
+## Tech Stack
 
-This project focuses on building a **practical AI-powered financial tool** while demonstrating skills in:
-
-- Data engineering
-- Quantitative finance
-- Financial data analysis
-- Natural language processing
-- AI-assisted decision systems
-
-The long-term goal is to expand the copilot with additional capabilities such as:
-
-- AI-powered stock screening
-- strategy backtesting
-- market event explanation
-- automated investment research reports
+| Layer | Technology |
+|---|---|
+| Agent | ReAct loop, Gemini (LLM backbone) |
+| API | FastAPI, SSE, Pydantic v2 |
+| Caching / Rate limiting | Redis |
+| Frontend | Streamlit (client-only mode) |
+| Data validation | Pydantic schemas on all tool I/O |
+| Testing *(in progress)* | pytest, judge-based LLM eval |
+| Persistence *(in progress)* | PostgreSQL |
 
 ---
 
-# 📌 Why This Project
+## Project Structure
 
-Most stock projects focus on **price prediction**, which is often unrealistic and not very useful in practice.
-
-This project instead focuses on **decision support**:
-
-Helping investors **understand markets, evaluate risk, and interpret financial information** more effectively.
-
----
-
-# ⚠️ Disclaimer
-
-This project is for **educational and research purposes only**.
-
-It does not provide financial advice or investment recommendations.
-
-Always conduct your own research before making investment decisions.
+```
+.
+├── app/
+│   ├── agents/          # ReAct loop + planner
+│   ├── tools/           # Tool functions and Pydantic schemas
+│   ├── services/        # Gemini + market data clients
+│   └── api/             # FastAPI routes, SSE, middleware
+├── apps/
+│   └── streamlit_app.py # Client-only frontend
+├── tests/               # Deterministic tool tests (in progress)
+├── evals/               # Golden dataset + judge eval runner (in progress)
+└── docker-compose.yml
+```
 
 ---
 
-# 👤 Author
+## Roadmap
 
-Andrew Chen
-Statistics & Economics  
-University of California, Davis
+This project is under active development. Phases 1 and 2 are complete; Phase 3 is currently in progress.
+
+| Phase | Goal | Status |
+|---|---|---|
+| 1 | ReAct agent loop, tool contracts, quant tools, guardrails | ✅ Complete |
+| 2 | FastAPI backend, SSE streaming, Redis, API hygiene | ✅ Complete |
+| 3 | Deterministic tests, golden dataset (40 prompts), judge-based eval, Postgres persistence | 🔄 In progress |
+| 4 | Docker, Terraform (ECS Fargate + ALB), GitHub Actions CI/CD | 📋 Planned |
+| 5 | Distributed tracing, structured JSON logs, latency metrics (p50/p95) | 📋 Planned |
+| 6 | Polished demo UI, debug side panel (live thoughts, tool traces), architecture diagram | 📋 Planned |
+
+---
+
+## Getting Started
+
+> **Note:** Full setup instructions will be added in Phase 4 alongside Docker and environment config. In the meantime, the steps below cover local development.
+
+**Prerequisites:** Python 3.11+, Redis
+
+```bash
+git clone https://github.com/Andrewchenyh/ai-investment-copilot
+cd ai-investment-copilot
+pip install -r requirements.txt
+```
+
+Set environment variables:
+
+```bash
+GEMINI_API_KEY=...
+REDIS_URL=redis://localhost:6379
+```
+
+Start the backend:
+
+```bash
+uvicorn app.api.main:app --reload
+```
+
+Start the frontend:
+
+```bash
+streamlit run apps/streamlit_app.py
+```
+
+---
+
+## Why this project
+
+Most LLM finance demos hardcode an analysis sequence and dress it up as an agent. This one isn't. The ReAct loop decides at runtime which tools to call, in what order, based on the specific query. The eval framework (Phase 3) is being built to measure whether that actually produces better answers — and to catch regressions as the model or prompts change.
+
+---
+
+## Author
+
+**Andrew Chen** · Statistics & Economics, UC Davis  
+[LinkedIn](https://www.linkedin.com/in/andrew-yihanchen) · [GitHub](https://github.com/Andrewchenyh)
