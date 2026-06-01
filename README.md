@@ -114,16 +114,13 @@ Repeated ticker lookups hit Redis instead of the data provider. Rate limiting is
 
 ```
 .
-├── app/
-│   ├── agents/          # ReAct loop + planner
-│   ├── tools/           # Tool functions and Pydantic schemas
-│   ├── services/        # Gemini + market data clients
-│   └── api/             # FastAPI routes, SSE, middleware
+├── agents/
+├── analysis/                 
 ├── apps/
-│   └── streamlit_app.py # Client-only frontend
-├── tests/               # Deterministic tool tests (in progress)
-├── evals/               # Golden dataset + judge eval runner (in progress)
-└── docker-compose.yml
+├── api/            
+├── apps/
+├── tools/  
+└── tests/
 ```
 
 ---
