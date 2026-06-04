@@ -62,6 +62,8 @@ def test_get_historical_volatility_tool_returns_computed_volatility(mocker) -> N
         period="30d",
         interval="1d",
     )
+    
+    mock_engine.return_value.compute_volatility.assert_called_once_with(mocker.ANY)
 
 
 def test_get_historical_volatility_tool_raises_when_no_data(mocker) -> None:
