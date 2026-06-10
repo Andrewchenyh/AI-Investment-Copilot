@@ -8,6 +8,7 @@ from typing import Any
 from agents.react_agent import ReActAgent
 from evals.load_golden import load_golden_queries
 from tools.setup_registry import build_tool_registry
+from evals.judge import GeminiJudge
 
 
 DEFAULT_OUTPUT_PATH = Path("evals/results/latest_golden_eval.json")
@@ -41,7 +42,11 @@ def avoids_forbidden_terms(answer: str, forbidden_terms: list[str]) -> bool:
     return all(term.lower() not in answer_lower for term in forbidden_terms)
 
 
-def evaluate_record(record: dict[str, Any], agent: ReActAgent) -> dict[str, Any]:
+def evaluate_record(
+    record: dict[str, Any],
+    agent: ReActAgent,
+    judge: GeminiJudge | None = None,
+) -> dict[str, Any]:
     result = agent.ask(record["query"])
     answer = result.get("answer") or ""
     trace = result.get("trace") or []
@@ -67,6 +72,14 @@ def evaluate_record(record: dict[str, Any], agent: ReActAgent) -> dict[str, Any]
             status_pass,
         ]
     )
+    
+    judge_score = None
+    if judge is not None and answer:
+        judge_score = judge.score(
+            query=record["query"],
+            answer=answer,
+            trace=trace,
+        ).model_dump()
 
     return {
         "id": record["id"],
@@ -85,6 +98,7 @@ def evaluate_record(record: dict[str, Any], agent: ReActAgent) -> dict[str, Any]
         "tools_used": tools_used,
         "answer": answer,
         "trace": trace,
+        "judge_score": judge_score,
     }
 
 
@@ -100,7 +114,13 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def run_eval(limit: int | None, output_path: Path) -> dict[str, Any]:
+def run_eval(
+    limit: int | None,
+    output_path: Path,
+    use_judge: bool = False,
+) -> dict[str, Any]:
+    
+    judge = GeminiJudge() if use_judge else None
     records = load_golden_queries()
     if limit is not None:
         records = records[:limit]
@@ -108,7 +128,10 @@ def run_eval(limit: int | None, output_path: Path) -> dict[str, Any]:
     registry = build_tool_registry()
     agent = ReActAgent(tool_registry=registry, max_steps=8)
 
-    results = [evaluate_record(record, agent) for record in records]
+    results = [
+        evaluate_record(record, agent, judge=judge)
+        for record in records
+    ]    
     summary = summarize_results(results)
 
     payload = {
@@ -130,9 +153,18 @@ def main() -> None:
         type=Path,
         default=DEFAULT_OUTPUT_PATH,
     )
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="Run LLM-as-judge scoring for each result.",
+    )
     args = parser.parse_args()
 
-    payload = run_eval(limit=args.limit, output_path=args.output)
+    payload = run_eval(
+        limit=args.limit,
+        output_path=args.output,
+        use_judge=args.judge,
+    )
     summary = payload["summary"]
 
     print(
