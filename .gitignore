@@ -31,3 +31,12 @@ build/
 
 # Streamlit
 .streamlit/
+
+# finsight
+finsight/
+
+# data
+data/
+
+# evals
+evals/results/
