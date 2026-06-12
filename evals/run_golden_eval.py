@@ -9,6 +9,7 @@ from agents.react_agent import ReActAgent
 from evals.load_golden import load_golden_queries
 from tools.setup_registry import build_tool_registry
 from evals.judge import GeminiJudge
+from evals.store_results import save_eval_run
 
 
 DEFAULT_OUTPUT_PATH = Path("evals/results/latest_golden_eval.json")
@@ -158,6 +159,11 @@ def main() -> None:
         action="store_true",
         help="Run LLM-as-judge scoring for each result.",
     )
+    parser.add_argument(
+        "--save-db",
+        action="store_true",
+        help="Persist this eval run to the local SQLite eval database.",
+    )
     args = parser.parse_args()
 
     payload = run_eval(
@@ -165,6 +171,9 @@ def main() -> None:
         output_path=args.output,
         use_judge=args.judge,
     )
+    if args.save_db:
+        run_id = save_eval_run(payload)
+        print(f"Saved eval run to SQLite with id: {run_id}")
     summary = payload["summary"]
 
     print(
