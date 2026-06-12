@@ -96,6 +96,76 @@ Repeated ticker lookups hit Redis instead of the data provider. Rate limiting is
 
 ---
 
+## Evaluation
+
+AI Investment Copilot includes a layered evaluation system designed to test both deterministic financial calculations and LLM behavior.
+
+### Evaluation Layers
+
+**1. Deterministic Unit Tests**
+The financial calculation layer is tested with `pytest`, including:
+- cash-secured put payoff metrics
+- annualized return calculations
+- technical indicators such as SMA, EMA, MACD, Bollinger Bands, and RSI
+- mocked tool wrappers for market-data and options-analysis tools
+
+**2. Golden Dataset**
+A curated golden dataset of benchmark investment queries covers:
+- cash-secured put analysis
+- explicit strike preservation
+- explicit expiration preservation
+- volatility questions
+- ticker comparison
+- invalid ticker handling
+- ambiguous company-name queries
+
+**3. Deterministic Agent Checks**
+The eval runner executes golden queries and checks:
+- whether expected tools were used
+- whether explicit user constraints were preserved
+- whether required concepts appeared in the final answer
+- whether forbidden behavior appeared
+
+**4. LLM-as-Judge Scoring**
+A secondary judge model scores final answers against the tool trace on:
+- factual grounding
+- reasoning quality
+- hallucination control
+- overall answer quality
+
+The judge is instructed to evaluate only against the provided tool trace, not external market knowledge.
+
+**5. Eval Persistence and Reports**
+Eval runs can be saved to a local SQLite database and converted into Markdown reports for inspection and portfolio documentation.
+
+### Running Evaluations
+
+Run deterministic tests:
+
+```bash
+pytest
+```
+
+Run the golden eval suite with judge scoring and persistence:
+
+```bash
+python -m evals.run_golden_eval --limit 10 --judge --save-db
+```
+
+List saved eval runs:
+
+```bash
+python -m evals.list_runs
+```
+
+Generate a Markdown report from the latest saved run:
+
+```bash
+python -m evals.generate_report
+```
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -105,21 +175,53 @@ Repeated ticker lookups hit Redis instead of the data provider. Rate limiting is
 | Caching / Rate limiting | Redis |
 | Frontend | Streamlit (client-only mode) |
 | Data validation | Pydantic schemas on all tool I/O |
-| Testing *(in progress)* | pytest, judge-based LLM eval |
-| Persistence *(in progress)* | PostgreSQL |
+| Testing | pytest, LLM-as-judge eval |
+| Persistence | PostgreSQL |
 
 ---
 
 ## Project Structure
 
+agents/     Agent orchestration and reasoning loops
+
+tools/      Tool implementations and registry
+
+analysis/   Financial analysis and risk calculations
+
+api/        FastAPI backend and authentication
+
+apps/       Streamlit frontend
+
+evals/      Golden dataset evaluation framework
+
+tests/      Unit and integration tests
+
 ```
 .
 ├── agents/
-├── analysis/                 
+│   ├── react_agent.py
+│   ├── stock_agent.py
+│   └── schemas.py
+├── analysis/
+│   ├── stock_analysis.py
+│   └── risk_metrics.py
+├── api/
+│   ├── app.py
+│   ├── service.py
+│   ├── auth.py
+│   └── rate_limit.py
 ├── apps/
-├── api/            
-├── apps/
-├── tools/  
+│   └── streamlit_app.py
+├── evals/
+│   ├── golden_queries.jsonl
+│   ├── judge.py
+│   ├── run_golden_eval.py
+│   └── generate_report.py
+├── tools/
+│   ├── market_data.py
+│   ├── options_tools.py
+│   ├── cache.py
+│   └── registry.py
 └── tests/
 ```
 
@@ -133,8 +235,8 @@ This project is under active development. Phases 1 and 2 are complete; Phase 3 i
 |---|---|---|
 | 1 | ReAct agent loop, tool contracts, quant tools, guardrails | ✅ Complete |
 | 2 | FastAPI backend, SSE streaming, Redis, API hygiene | ✅ Complete |
-| 3 | Deterministic tests, golden dataset (40 prompts), judge-based eval, Postgres persistence | 🔄 In progress |
-| 4 | Docker, Terraform (ECS Fargate + ALB), GitHub Actions CI/CD | 📋 Planned |
+| 3 | Deterministic tests, golden dataset (40 prompts), judge-based eval, Postgres persistence | ✅ Complete |
+| 4 | Docker, Terraform (ECS Fargate + ALB), GitHub Actions CI/CD | 🔄 In progress |
 | 5 | Distributed tracing, structured JSON logs, latency metrics (p50/p95) | 📋 Planned |
 | 6 | Polished demo UI, debug side panel (live thoughts, tool traces), architecture diagram | 📋 Planned |
 
