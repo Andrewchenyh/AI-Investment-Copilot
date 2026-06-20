@@ -40,3 +40,6 @@ data/
 
 # evals
 evals/results/
+
+# reports
+evals/reports/
