@@ -10,6 +10,22 @@ jobs:
     name: Python Tests
     runs-on: ubuntu-latest
 
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      GEMINI_API_KEY: dummy-for-tests
+      COPILOT_API_KEY: test-api-key
+      REDIS_URL: redis://localhost:6379/0
+
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
