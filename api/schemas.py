@@ -17,6 +17,7 @@ class AnalyzeRequest(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     status: str
+    trace_id: str
     answer: str | None = None
     message: str | None = None
     trace: list[dict[str, Any]]
@@ -25,6 +26,7 @@ class AnalyzeResponse(BaseModel):
 class HistoryItem(BaseModel):
     query: str
     status: str
+    trace_id: str | None = None
     answer: str | None = None
     message: str | None = None
     trace: list[dict[str, Any]]
@@ -55,6 +57,7 @@ class CompareRequest(BaseModel):
 
 class CompareResponse(BaseModel):
     status: str
+    trace_id: str
     answer: str | None = None
     message: str | None = None
     trace: list[dict[str, Any]]
