@@ -102,10 +102,10 @@ class ReActAgent:
                 error=str(exc),
             )
 
-    def ask(self, user_query: str) -> dict[str, Any]:
+    def ask(self, user_query: str, trace_id: str) -> dict[str, Any]:
         final_result: dict[str, Any] | None = None
 
-        for event in self.run_with_events(user_query):
+        for event in self.run_with_events(user_query, trace_id=trace_id):
             if event["event"] == "final_answer":
                 final_result = event["data"]
             elif event["event"] == "error":
@@ -114,6 +114,7 @@ class ReActAgent:
         if final_result is None:
             return {
                 "status": "error",
+                "trace_id": trace_id,
                 "message": "Agent terminated without producing a final result.",
                 "trace": [],
             }
@@ -121,12 +122,13 @@ class ReActAgent:
         return final_result
     
     
-    def run_with_events(self, user_query: str):
+    def run_with_events(self, user_query: str, trace_id: str):
         trace: list[dict[str, Any]] = []
         
         yield {
             "event": "start",
             "data": {
+                "trace_id": trace_id,
                 "query": user_query,
                 "max_steps": self.max_steps,
             },
@@ -136,6 +138,7 @@ class ReActAgent:
             agent_step = self._llm_step(user_query=user_query, trace=trace)
 
             thought_payload = {
+                "trace_id": trace_id,
                 "step": step_number,
                 "thought": agent_step.thought,
                 "action_type": agent_step.action_type,
@@ -150,6 +153,7 @@ class ReActAgent:
             if agent_step.action_type == "final_answer":
                 final_payload = {
                     "status": "success",
+                    "trace_id": trace_id,
                     "answer": agent_step.final_answer,
                     "trace": trace,
                 }
@@ -162,7 +166,8 @@ class ReActAgent:
             if agent_step.tool_call is None:
                 error_payload = {
                     "status": "error",
-                    "message": "Model requested a tool call without tool details.",
+                    "trace_id": trace_id,
+                    "message": "...",
                     "trace": trace,
                 }
                 yield {
@@ -174,10 +179,11 @@ class ReActAgent:
             yield {
                 "event": "tool_call",
                 "data": {
+                    "trace_id": trace_id,
                     "step": step_number,
                     "tool_name": agent_step.tool_call.tool_name,
                     "tool_args_json": agent_step.tool_call.tool_args_json,
-                },
+                }
             }
 
             try:
@@ -204,6 +210,7 @@ class ReActAgent:
             )
 
             observation_payload = {
+                "trace_id": trace_id,
                 "tool_name": observation.tool_name,
                 "tool_args": observation.tool_args,
                 "observation": observation.result,
@@ -219,7 +226,8 @@ class ReActAgent:
 
         error_payload = {
             "status": "error",
-            "message": f"Agent exceeded max_steps={self.max_steps} without reaching a final answer.",
+            "trace_id": trace_id,
+            "message": "...",
             "trace": trace,
         }
         yield {
