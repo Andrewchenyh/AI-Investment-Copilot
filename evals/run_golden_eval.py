@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from agents.react_agent import ReActAgent
 from evals.load_golden import load_golden_queries
@@ -48,7 +49,7 @@ def evaluate_record(
     agent: ReActAgent,
     judge: GeminiJudge | None = None,
 ) -> dict[str, Any]:
-    result = agent.ask(record["query"])
+    result = agent.ask(record["query"], trace_id=str(uuid4()))
     answer = result.get("answer") or ""
     trace = result.get("trace") or []
     tools_used = extract_tools_used(trace)
