@@ -54,28 +54,63 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
 async def stream_analysis(query: str, session_id: str | None = None):
     trace_id = str(uuid4())
     start = time.perf_counter()
-    for event in agent.run_with_events(query, trace_id=trace_id):
-        event["data"]["trace_id"] = trace_id
+    log_event(
+        logger,
+        "analysis_stream_started",
+        trace_id=trace_id,
+        query=query,
+    )
 
-        if session_id and event["event"] in {"final_answer", "error"}:
-            result = event["data"]
-            save_history_item(
-                session_id=session_id,
-                item={
-                    "query": query,
-                    "status": result["status"],
-                    "trace_id": trace_id,
-                    "answer": result.get("answer"),
-                    "message": result.get("message"),
-                    "trace": result["trace"],
-                },
+    try:
+        for event in agent.run_with_events(query, trace_id=trace_id):
+            event["data"]["trace_id"] = trace_id
+
+            if session_id and event["event"] in {"final_answer", "error"}:
+                result = event["data"]
+                save_history_item(
+                    session_id=session_id,
+                    item={
+                        "query": query,
+                        "status": result["status"],
+                        "trace_id": trace_id,
+                        "answer": result.get("answer"),
+                        "message": result.get("message"),
+                        "trace": result["trace"],
+                    },
+                )
+
+            if event["event"] in {"final_answer", "error"}:
+                result = event["data"]
+                latency_ms = (time.perf_counter() - start) * 1000
+
+                log_event(
+                    logger,
+                    "analysis_stream_finished",
+                    trace_id=trace_id,
+                    status=result["status"],
+                    latency_ms=round(latency_ms, 2),
+                )
+
+            sse_message = (
+                f"event: {event['event']}\n"
+                f"data: {json.dumps(event['data'])}\n\n"
             )
+            yield sse_message
 
-        sse_message = (
-            f"event: {event['event']}\n"
-            f"data: {json.dumps(event['data'])}\n\n"
+
+    except Exception as e:
+        latency_ms = (time.perf_counter() - start) * 1000
+
+        log_event(
+            logger,
+            "analysis_stream_failed",
+            trace_id=trace_id,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            latency_ms=round(latency_ms, 2),
         )
-        yield sse_message
+
+        raise
 
 
 def build_comparison_query(tickers: list[str], question: str) -> str:
@@ -140,25 +175,61 @@ async def stream_comparison(
     trace_id = str(uuid4())
     comparison_query = build_comparison_query(tickers, question)
 
-    for event in agent.run_with_events(comparison_query, trace_id=trace_id):
-        event["data"]["trace_id"] = trace_id
+    start = time.perf_counter()
+    log_event(
+        logger,
+        "comparison_stream_started",
+        trace_id=trace_id,
+        query=comparison_query,
+        tickers=[ticker.upper().strip() for ticker in tickers],
+    )
 
-        if session_id and event["event"] in {"final_answer", "error"}:
-            result = event["data"]
-            save_history_item(
-                session_id=session_id,
-                item={
-                    "query": comparison_query,
-                    "status": result["status"],
-                    "trace_id": trace_id,
-                    "answer": result.get("answer"),
-                    "message": result.get("message"),
-                    "trace": result["trace"],
-                },
+    try:
+        for event in agent.run_with_events(comparison_query, trace_id=trace_id):
+            event["data"]["trace_id"] = trace_id
+
+            if session_id and event["event"] in {"final_answer", "error"}:
+                result = event["data"]
+                save_history_item(
+                    session_id=session_id,
+                    item={
+                        "query": comparison_query,
+                        "status": result["status"],
+                        "trace_id": trace_id,
+                        "answer": result.get("answer"),
+                        "message": result.get("message"),
+                        "trace": result["trace"],
+                    },
+                )
+
+            if event["event"] in {"final_answer", "error"}:
+                result = event["data"]
+                latency_ms = (time.perf_counter() - start) * 1000
+
+                log_event(
+                    logger,
+                    "comparison_stream_finished",
+                    trace_id=trace_id,
+                    status=result["status"],
+                    latency_ms=round(latency_ms, 2),
+                )
+
+            sse_message = (
+                f"event: {event['event']}\n"
+                f"data: {json.dumps(event['data'])}\n\n"
             )
+            yield sse_message
 
-        sse_message = (
-            f"event: {event['event']}\n"
-            f"data: {json.dumps(event['data'])}\n\n"
+    except Exception as e:
+        latency_ms = (time.perf_counter() - start) * 1000
+
+        log_event(
+            logger,
+            "comparison_stream_failed",
+            trace_id=trace_id,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            latency_ms=round(latency_ms, 2),
         )
-        yield sse_message
+
+        raise
