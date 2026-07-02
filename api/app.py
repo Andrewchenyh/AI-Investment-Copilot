@@ -18,7 +18,9 @@ from api.service import (
     stream_analysis,
     stream_comparison,
 )
+from observability.logging import configure_json_logging
 
+configure_json_logging()
 app = FastAPI(
     title="AI Investment Copilot API",
     version="0.1.0",
