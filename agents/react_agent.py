@@ -84,9 +84,9 @@ class ReActAgent:
 
         return parsed
 
-    def _execute_tool(self, tool_name: str, tool_args: dict[str, Any]) -> ToolObservation:
+    def _execute_tool(self, tool_name: str, tool_args: dict[str, Any], trace_id: str) -> ToolObservation:
         try:
-            result = self.tool_registry.execute(tool_name, tool_args)
+            result = self.tool_registry.execute(tool_name, tool_args, trace_id)
             return ToolObservation(
                 tool_name=tool_name,
                 tool_args=tool_args,
