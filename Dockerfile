@@ -37,6 +37,7 @@ COPY agents/ agents/
 COPY analysis/ analysis/
 COPY tools/ tools/
 COPY evals/ evals/
+COPY observability/ observability/
 COPY main.py .
 COPY README.md .
 
