@@ -7,6 +7,7 @@ from agents.react_agent import ReActAgent
 from tools.setup_registry import build_tool_registry
 from api.history import save_history_item
 from observability.logging import log_event
+from observability.metrics import metrics
 
 tool_registry = build_tool_registry()
 agent = ReActAgent(tool_registry=tool_registry, max_steps=10)
@@ -21,6 +22,8 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
     result = agent.ask(query, trace_id=trace_id)
 
     latency_ms = (time.perf_counter() - start) * 1000
+    metrics.record_request_latency(latency_ms)
+    
     log_event(
         logger,
         "analysis_request_finished",
@@ -82,6 +85,7 @@ async def stream_analysis(query: str, session_id: str | None = None):
             if event["event"] in {"final_answer", "error"}:
                 result = event["data"]
                 latency_ms = (time.perf_counter() - start) * 1000
+                metrics.record_request_latency(latency_ms)
 
                 log_event(
                     logger,
@@ -137,6 +141,8 @@ async def run_comparison(
     result = agent.ask(comparison_query, trace_id=trace_id)
 
     latency_ms = (time.perf_counter() - start) * 1000
+    metrics.record_request_latency(latency_ms)
+    
     log_event(
         logger,
         "comparison_request_finished",
@@ -205,6 +211,7 @@ async def stream_comparison(
             if event["event"] in {"final_answer", "error"}:
                 result = event["data"]
                 latency_ms = (time.perf_counter() - start) * 1000
+                metrics.record_request_latency(latency_ms)
 
                 log_event(
                     logger,
