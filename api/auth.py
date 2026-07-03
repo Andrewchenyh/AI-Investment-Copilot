@@ -22,4 +22,4 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> str:
             detail="Invalid or missing API key."
         )
 
-    return x_api_key
+    return x_api_key # type: ignore
