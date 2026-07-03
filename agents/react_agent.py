@@ -71,7 +71,7 @@ class ReActAgent:
             },
         )
 
-        return AgentStep.model_validate_json(response.text)
+        return AgentStep.model_validate_json(response.text) # type: ignore
 
     def _parse_tool_args(self, tool_args_json: str) -> dict[str, Any]:
         try:
@@ -207,6 +207,7 @@ class ReActAgent:
             observation = self._execute_tool(
                 tool_name=agent_step.tool_call.tool_name,
                 tool_args=tool_args,
+                trace_id=trace_id
             )
 
             observation_payload = {
