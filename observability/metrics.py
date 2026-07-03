@@ -68,3 +68,14 @@ class MetricsCollector:
             },
         }
 
+
+def percentile(values: list[float], p: int) -> float | None:
+    if not values:
+        return None
+
+    sorted_values = sorted(values)
+    index = int(round((p / 100) * (len(sorted_values) - 1)))
+    return round(sorted_values[index], 2)
+
+
+metrics = MetricsCollector()
