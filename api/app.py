@@ -19,6 +19,7 @@ from api.service import (
     stream_comparison,
 )
 from observability.logging import configure_json_logging
+from observability.metrics import metrics
 
 configure_json_logging()
 app = FastAPI(
@@ -101,4 +102,11 @@ async def get_history(
     _: str = Depends(require_api_key),
 ) -> HistoryResponse:
     items = get_history_items(session_id)
-    return HistoryResponse(session_id=session_id, items=items)
+    return HistoryResponse(session_id=session_id, items=items) # type: ignore
+
+
+@app.get("/metrics")
+async def get_metrics(
+    _: str = Depends(require_api_key),
+) -> dict:
+    return metrics.snapshot()
