@@ -5,6 +5,7 @@ import time
 
 from observability.logging import log_event, summarize_payload
 from tools.cache import get_cached_tool_result, set_cached_tool_result
+from observability.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,11 @@ class ToolRegistry:
                         input_summary=summarize_payload(tool_args),
                         output_summary=summarize_payload(cached_result),
                     )
+                    metrics.record_tool_execution(
+                        latency_ms=latency_ms,
+                        success=True,
+                        cache_hit=True,
+                    )
                     return cached_result
 
             validated_input = tool.input_model.model_validate(tool_args)
@@ -102,6 +108,11 @@ class ToolRegistry:
                 input_summary=summarize_payload(tool_args),
                 output_summary=summarize_payload(result_dict),
             )
+            metrics.record_tool_execution(
+                latency_ms=latency_ms,
+                success=True,
+                cache_hit=False,
+            )
 
             return result_dict
 
@@ -118,7 +129,14 @@ class ToolRegistry:
                 input_summary=summarize_payload(tool_args),
                 error=str(exc),
             )
+            metrics.record_tool_execution(
+                latency_ms=latency_ms,
+                success=False,
+                cache_hit=False,
+            )
+            
             raise
+            
 
     def describe_tools(self) -> str:
         return "\n\n".join(tool.describe() for tool in self._tools.values())
