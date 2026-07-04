@@ -102,6 +102,12 @@ with st.sidebar:
 main_col, debug_col = st.columns([0.62, 0.38], gap="large")
 
 with main_col:
+    st.subheader("Run Summary")
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    status_metric = metric_col1.empty()
+    trace_metric = metric_col2.empty()
+    tool_metric = metric_col3.empty()
+
     st.subheader("Answer")
     answer_placeholder = st.empty()
 
