@@ -142,3 +142,98 @@ def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
             )
 
     return grounded
+
+
+if run_button and user_query:
+    final_trace: list[dict] = []
+    thought_lines: list[str] = []
+    tool_lines: list[str] = []
+    latest_trace_id = None
+
+    answer_placeholder.info("Streaming analysis from the FastAPI agent...")
+    grounded_placeholder.empty()
+    trace_id_placeholder.caption("Trace ID: pending")
+    thoughts_placeholder.empty()
+    tools_placeholder.empty()
+
+    try:
+        for event_name, event_data in stream_sse_events(
+            query=user_query,
+            session_id=session_id,
+        ):
+            latest_trace_id = event_data.get("trace_id", latest_trace_id)
+
+            if latest_trace_id:
+                trace_id_placeholder.code(latest_trace_id)
+
+            if event_name == "start":
+                thought_lines.append("Started analysis.")
+                thoughts_placeholder.markdown(
+                    "**Live Thoughts**\n\n" + "\n\n".join(thought_lines)
+                )
+
+            elif event_name == "thought":
+                final_trace.append(event_data)
+                thought_lines.append(
+                    f"Step {event_data['step']}: {event_data['thought']}"
+                )
+                thoughts_placeholder.markdown(
+                    "**Live Thoughts**\n\n" + "\n\n".join(thought_lines)
+                )
+
+            elif event_name == "tool_call":
+                tool_lines.append(
+                    f"Calling `{event_data['tool_name']}` with `{event_data['tool_args_json']}`"
+                )
+                tools_placeholder.markdown(
+                    "**Tool Calls**\n\n" + "\n\n".join(tool_lines)
+                )
+
+            elif event_name == "tool_result":
+                final_trace.append(event_data)
+
+                if event_data.get("success"):
+                    tool_lines.append(
+                        f"Completed `{event_data['tool_name']}`."
+                    )
+                else:
+                    tool_lines.append(
+                        f"`{event_data['tool_name']}` failed: {event_data.get('error')}"
+                    )
+
+                tools_placeholder.markdown(
+                    "**Tool Calls**\n\n" + "\n\n".join(tool_lines)
+                )
+
+                grounded_numbers = extract_grounded_numbers(final_trace)
+                if grounded_numbers:
+                    grounded_placeholder.dataframe(
+                        grounded_numbers,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            elif event_name == "final_answer":
+                latest_trace_id = event_data.get("trace_id", latest_trace_id)
+                final_trace = event_data["trace"]
+                answer_placeholder.success(event_data["answer"])
+
+                grounded_numbers = extract_grounded_numbers(final_trace)
+                if grounded_numbers:
+                    grounded_placeholder.dataframe(
+                        grounded_numbers,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            elif event_name == "error":
+                answer_placeholder.error(
+                    event_data.get("message", "Unknown streaming error.")
+                )
+                final_trace = event_data.get("trace", final_trace)
+
+        with trace_expander:
+            st.json(final_trace)
+
+    except requests.RequestException as exc:
+        answer_placeholder.error(f"Request failed: {exc}")
