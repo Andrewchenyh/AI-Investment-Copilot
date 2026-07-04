@@ -1,35 +1,51 @@
 import json
+import os
 
 import requests
 import streamlit as st
-import os
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 API_KEY = os.getenv("COPILOT_API_KEY", "")
 
 
-st.set_page_config(page_title="AI Investment Copilot", layout="wide")
+st.set_page_config(
+    page_title="AI Investment Copilot",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 st.title("AI Investment Copilot")
-st.markdown("Ask investment questions and watch the agent think in real time.")
-
+st.caption("A tool-using investment research agent with live trace visibility.")
 
 with st.sidebar:
-    st.header("Ask the Copilot")
+    st.header("Analysis")
     user_query = st.text_area(
-        "Enter query:",
+        "Ask a question",
         placeholder="Is it a good time to write a cash-secured put on ORCL?",
+        height=120,
     )
-    run_button = st.button("Run Analysis")
+    session_id = st.text_input("Session ID", value="demo-session")
+    run_button = st.button("Run Analysis", type="primary", use_container_width=True)
 
+main_col, debug_col = st.columns([0.62, 0.38], gap="large")
 
-answer_container = st.container()
-thoughts_container = st.container()
-tools_container = st.container()
-trace_container = st.expander("View Final Trace")
+with main_col:
+    st.subheader("Answer")
+    answer_placeholder = st.empty()
+
+    st.subheader("Grounded Numbers")
+    grounded_placeholder = st.empty()
+
+with debug_col:
+    st.subheader("Debug Trace")
+    trace_id_placeholder = st.empty()
+    thoughts_placeholder = st.empty()
+    tools_placeholder = st.empty()
+    trace_expander = st.expander("Raw Trace", expanded=False)
 
 
 def stream_sse_events(query: str):
