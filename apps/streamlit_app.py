@@ -11,13 +11,11 @@ load_dotenv()
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 API_KEY = os.getenv("COPILOT_API_KEY", "")
 
-
 st.set_page_config(
     page_title="AI Investment Copilot",
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
 
 st.markdown(
     """
@@ -43,27 +41,10 @@ st.markdown(
         color: #687076;
         font-size: 0.9rem;
     }
-
-    .section-label {
-        color: #4f5661;
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-weight: 700;
-        margin-bottom: 0.35rem;
-    }
-
-    .answer-box {
-        border: 1px solid #e6e8eb;
-        border-radius: 8px;
-        padding: 1rem;
-        background: #ffffff;
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
 
 st.title("AI Investment Copilot")
 st.caption("A tool-using investment research agent with live trace visibility.")
@@ -83,11 +64,9 @@ with st.sidebar:
         options=list(PRESET_QUERIES.keys()),
     )
 
-    default_query = PRESET_QUERIES[preset_label]
-
     user_query = st.text_area(
         "Ask a question",
-        value=default_query,
+        value=PRESET_QUERIES[preset_label],
         height=120,
     )
 
@@ -154,8 +133,8 @@ def stream_sse_events(query: str, session_id: str | None = None):
             current_event = line.removeprefix("event:").strip()
         elif line.startswith("data:"):
             current_data_lines.append(line.removeprefix("data:").strip())
-            
-            
+
+
 def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
     grounded = []
 
@@ -180,6 +159,15 @@ def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
                 {
                     "Metric": f"{observation.get('ticker', '')} price",
                     "Value": f"${observation.get('price', 0):,.2f}",
+                    "Source": tool_name,
+                }
+            )
+
+        if tool_name == "get_options_chain":
+            grounded.append(
+                {
+                    "Metric": "Options expiration",
+                    "Value": str(observation.get("expiration", "")),
                     "Source": tool_name,
                 }
             )
@@ -218,12 +206,60 @@ def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
     return grounded
 
 
+def summarize_tool_result(event_data: dict) -> str:
+    tool_name = event_data.get("tool_name")
+    observation = event_data.get("observation", {})
+
+    if not event_data.get("success"):
+        return f"`{tool_name}` failed: {event_data.get('error')}"
+
+    if tool_name == "get_current_price":
+        return (
+            f"`get_current_price`: {observation.get('ticker')} "
+            f"${observation.get('price', 0):,.2f}"
+        )
+
+    if tool_name == "get_historical_volatility":
+        return (
+            "`get_historical_volatility`: "
+            f"{observation.get('annualized_volatility', 0) * 100:.2f}%"
+        )
+
+    if tool_name == "get_options_chain":
+        return (
+            f"`get_options_chain`: {observation.get('contract_count')} contracts, "
+            f"exp {observation.get('expiration')}"
+        )
+
+    if tool_name == "analyze_cash_secured_put":
+        return (
+            "`analyze_cash_secured_put`: "
+            f"strike ${observation.get('strike', 0):,.2f}, "
+            f"premium ${observation.get('premium', 0):,.2f}"
+        )
+
+    return f"`{tool_name}` completed."
+
+
+status_metric.metric("Status", "Idle")
+trace_metric.metric("Trace", "None")
+tool_metric.metric("Tools", "0")
+answer_placeholder.info("Choose a demo query and run the agent.")
+grounded_placeholder.caption("Grounded numbers will appear after tool execution.")
+trace_id_placeholder.caption("Trace ID will appear here.")
+thoughts_placeholder.caption("Live reasoning steps will appear here.")
+tools_placeholder.caption("Tool calls and results will appear here.")
+
 if run_button and user_query:
     final_trace: list[dict] = []
     thought_lines: list[str] = []
     tool_lines: list[str] = []
     latest_trace_id = None
+    tool_count = 0
 
+    status_metric.metric("Status", "Running")
+    trace_metric.metric("Trace", "Pending")
+    tool_metric.metric("Tools", "0")
     answer_placeholder.info("Streaming analysis from the FastAPI agent...")
     grounded_placeholder.empty()
     trace_id_placeholder.caption("Trace ID: pending")
@@ -239,6 +275,7 @@ if run_button and user_query:
 
             if latest_trace_id:
                 trace_id_placeholder.code(latest_trace_id)
+                trace_metric.metric("Trace", latest_trace_id[:8])
 
             if event_name == "start":
                 thought_lines.append("Started analysis.")
@@ -265,16 +302,10 @@ if run_button and user_query:
 
             elif event_name == "tool_result":
                 final_trace.append(event_data)
+                tool_count += 1
+                tool_metric.metric("Tools", str(tool_count))
 
-                if event_data.get("success"):
-                    tool_lines.append(
-                        f"Completed `{event_data['tool_name']}`."
-                    )
-                else:
-                    tool_lines.append(
-                        f"`{event_data['tool_name']}` failed: {event_data.get('error')}"
-                    )
-
+                tool_lines.append(summarize_tool_result(event_data))
                 tools_placeholder.markdown(
                     "**Tool Calls**\n\n" + "\n\n".join(tool_lines)
                 )
@@ -288,8 +319,8 @@ if run_button and user_query:
                     )
 
             elif event_name == "final_answer":
-                latest_trace_id = event_data.get("trace_id", latest_trace_id)
                 final_trace = event_data["trace"]
+                status_metric.metric("Status", "Complete")
                 answer_placeholder.success(event_data["answer"])
 
                 grounded_numbers = extract_grounded_numbers(final_trace)
@@ -301,6 +332,7 @@ if run_button and user_query:
                     )
 
             elif event_name == "error":
+                status_metric.metric("Status", "Error")
                 answer_placeholder.error(
                     event_data.get("message", "Unknown streaming error.")
                 )
@@ -310,4 +342,5 @@ if run_button and user_query:
             st.json(final_trace)
 
     except requests.RequestException as exc:
+        status_metric.metric("Status", "Error")
         answer_placeholder.error(f"Request failed: {exc}")
