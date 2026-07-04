@@ -82,3 +82,63 @@ def stream_sse_events(query: str, session_id: str | None = None):
             current_data_lines.append(line.removeprefix("data:").strip())
             
             
+def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
+    grounded = []
+
+    for item in trace:
+        observation = item.get("observation")
+        tool_name = item.get("tool_name")
+
+        if not isinstance(observation, dict):
+            continue
+
+        if tool_name == "get_historical_volatility":
+            grounded.append(
+                {
+                    "Metric": "Historical volatility",
+                    "Value": f"{observation.get('annualized_volatility', 0) * 100:.2f}%",
+                    "Source": tool_name,
+                }
+            )
+
+        if tool_name == "get_current_price":
+            grounded.append(
+                {
+                    "Metric": f"{observation.get('ticker', '')} price",
+                    "Value": f"${observation.get('price', 0):,.2f}",
+                    "Source": tool_name,
+                }
+            )
+
+        if tool_name == "analyze_cash_secured_put":
+            grounded.extend(
+                [
+                    {
+                        "Metric": "Strike",
+                        "Value": f"${observation.get('strike', 0):,.2f}",
+                        "Source": tool_name,
+                    },
+                    {
+                        "Metric": "Premium",
+                        "Value": f"${observation.get('premium', 0):,.2f}",
+                        "Source": tool_name,
+                    },
+                    {
+                        "Metric": "Break-even",
+                        "Value": f"${observation.get('break_even_price', 0):,.2f}",
+                        "Source": tool_name,
+                    },
+                    {
+                        "Metric": "Annualized return",
+                        "Value": f"{observation.get('annualized_return', 0) * 100:.2f}%",
+                        "Source": tool_name,
+                    },
+                    {
+                        "Metric": "Cash required",
+                        "Value": f"${observation.get('cash_required_dollars', 0):,.0f}",
+                        "Source": tool_name,
+                    },
+                ]
+            )
+
+    return grounded
