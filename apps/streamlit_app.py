@@ -68,15 +68,36 @@ st.markdown(
 st.title("AI Investment Copilot")
 st.caption("A tool-using investment research agent with live trace visibility.")
 
+PRESET_QUERIES = {
+    "Cash-secured put: ORCL": "Is it a good time to write a cash-secured put on ORCL?",
+    "Explicit strike: ORCL $170 put": "Is it a good time to write a $170 cash-secured put on ORCL?",
+    "Volatility: ORCL": "What is ORCL recent historical volatility?",
+    "Compare puts: ORCL vs MSFT": "Compare ORCL and MSFT for writing cash-secured puts.",
+}
+
 with st.sidebar:
     st.header("Analysis")
+
+    preset_label = st.selectbox(
+        "Demo query",
+        options=list(PRESET_QUERIES.keys()),
+    )
+
+    default_query = PRESET_QUERIES[preset_label]
+
     user_query = st.text_area(
         "Ask a question",
-        placeholder="Is it a good time to write a cash-secured put on ORCL?",
+        value=default_query,
         height=120,
     )
+
     session_id = st.text_input("Session ID", value="demo-session")
     run_button = st.button("Run Analysis", type="primary", use_container_width=True)
+
+    st.markdown(
+        '<p class="small-muted">Research assistant only. Not financial advice.</p>',
+        unsafe_allow_html=True,
+    )
 
 main_col, debug_col = st.columns([0.62, 0.38], gap="large")
 
