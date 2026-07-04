@@ -18,6 +18,53 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
+    }
+
+    div[data-testid="stSidebar"] {
+        background-color: #f7f8fa;
+    }
+
+    div[data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #e6e8eb;
+        padding: 0.75rem;
+        border-radius: 8px;
+    }
+
+    .small-muted {
+        color: #687076;
+        font-size: 0.9rem;
+    }
+
+    .section-label {
+        color: #4f5661;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+    }
+
+    .answer-box {
+        border: 1px solid #e6e8eb;
+        border-radius: 8px;
+        padding: 1rem;
+        background: #ffffff;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 st.title("AI Investment Copilot")
 st.caption("A tool-using investment research agent with live trace visibility.")
 
