@@ -1,116 +1,185 @@
 # AI Investment Copilot
 
-> An agentic stock analysis system built on a **ReAct (Reason + Act) loop** — not a chatbot wrapper. The agent reasons about your query, selects and executes financial tools, observes results, and iterates until it can ground a final answer in real data.
+AI Investment Copilot is an agentic investment research assistant built around a ReAct loop, structured financial tools, streaming FastAPI endpoints, evaluation, and observability.
+
+The project is designed to demonstrate applied AI engineering skills: tool use, structured outputs, backend service design, evals, caching, tracing, and a transparent demo UI.
+
+> Educational research project only. This is not financial advice.
 
 ---
 
-## What it does
+## What It Does
 
-Ask a question like *"Is it a good time to write a cash-secured put on MSFT?"* and the agent autonomously:
+Ask a question like:
 
-1. Reasons about what information it needs
-2. Calls the appropriate financial tools (price, volatility, options chain, quant metrics)
-3. Observes each result and decides the next step
-4. Produces a final answer cited entirely from tool outputs — no hallucinated numbers
+```text
+Is it a good time to write a cash-secured put on ORCL?
+```
+
+The system can:
+
+- reason about which information it needs
+- call financial tools for current price, historical volatility, options chains, and cash-secured-put metrics
+- stream thoughts and tool calls to the UI in real time
+- produce a final answer grounded in tool observations
+- expose trace IDs, JSON logs, and metrics for debugging
+- evaluate agent behavior against a golden benchmark set
 
 ---
 
 ## Architecture
 
-```
-User Query
-    │
-    ▼
-┌─────────────────────────────────────────┐
-│             FastAPI Backend             │
-│  POST /analyze  │  POST /compare        │
-│  GET /history/{session_id}              │
-└────────────────┬────────────────────────┘
-                 │  SSE stream
-                 ▼
-┌─────────────────────────────────────────┐
-│           ReAct Agent Loop              │
-│  reason → select tool → execute →      │
-│  observe → repeat or finalize          │
-│                                         │
-│  Guardrails: max iterations, tool       │
-│  registry, timeout/retry, grounding     │
-└──────┬────────────────────────┬─────────┘
-       │                        │
-       ▼                        ▼
-┌─────────────┐        ┌────────────────┐
-│  Tool Layer │        │  Redis Cache   │
-│  (Pydantic  │        │  price history │
-│   schemas)  │        │  quotes, chain │
-└─────────────┘        └────────────────┘
-       │
-       ▼
-┌──────────────────────────────────────────┐
-│             Tool Registry                │
-│  get_price_history                       │
-│  get_current_price                       │
-│  get_options_chain                       │
-│  get_historical_volatility               │
-│  compute_momentum                        │
-│  compute_statistical_divergence          │
-│  compute_cash_secured_put_metrics  ★     │
-│  compute_covered_call_metrics      ★     │
-└──────────────────────────────────────────┘
+```text
+Streamlit UI
+    |
+    | HTTP / SSE
+    v
+FastAPI Backend
+    |
+    | /analyze, /analyze/stream
+    | /compare, /compare/stream
+    | /history/{session_id}
+    | /metrics
+    v
+ReAct Agent
+    |
+    | Thought -> Tool Call -> Observation -> Final Answer
+    v
+Tool Registry
+    |
+    | Pydantic input/output schemas
+    v
+Financial Tools
+    |
+    | get_current_price
+    | get_historical_volatility
+    | get_options_chain
+    | analyze_cash_secured_put
+    v
+Market Data + Quant Calculations
 
-★ Quant tools combining spot, vol, premium, break-even,
-  annualized yield, and OTM probability
+Redis
+    | API rate limiting
+    | tool response caching
+    | session history
+
+Observability
+    | trace_id propagation
+    | structured JSON logs
+    | request/tool metrics
 ```
 
-The Streamlit frontend runs in **client-only mode** — it calls the FastAPI backend over HTTP/SSE and contains no agent logic.
+The Streamlit frontend is a thin client. It does not run agent logic directly; it calls the FastAPI backend over HTTP and Server-Sent Events.
 
 ---
 
 ## Key Features
 
 ### ReAct Agent Loop
-The agent follows a strict Reason → Act → Observe cycle with guardrails: a maximum iteration count, an explicit allowed-tool registry, invalid tool handling, and a rule that the final answer must cite tool outputs only. No hardcoded analysis sequences.
+
+The agent follows a structured loop:
+
+```text
+reason -> choose tool -> execute tool -> observe result -> continue or answer
+```
+
+The loop includes max-step guardrails, structured model outputs, allowed-tool dispatch through a registry, tool error handling, and trace capture.
 
 ### Strict Tool Contracts
-Every tool has a Pydantic input and output schema. The agent cannot pass malformed arguments or silently swallow bad responses — schema violations surface immediately as structured errors.
 
-### Options / Quant Tools
-`analyze_cash_secured_put_opportunity` is the standout tool. Given a ticker, strike, and expiry, it combines:
-- Current spot price
-- Implied or historical volatility
-- Premium and break-even
-- Annualized yield
-- Probability of the option finishing OTM (profitable for the seller)
+Tools are registered with:
 
-### SSE Streaming
-The backend emits a structured event stream so the frontend can render agent progress in real time:
+- name
+- description
+- Pydantic input schema
+- Pydantic output schema
+- deterministic Python function
 
+This keeps the LLM from passing arbitrary arguments into finance code and makes tool behavior easier to test.
+
+### Options and Risk Tools
+
+The current options workflow supports:
+
+- current price lookup
+- realized historical volatility
+- options chain retrieval
+- target-strike and reference-price chain filtering
+- smarter default expiration selection
+- cash-secured-put payoff metrics
+
+The `analyze_cash_secured_put` tool computes:
+
+- spot price
+- strike
+- premium
+- break-even
+- max profit
+- cash required
+- simple return
+- annualized return
+- downside buffer to strike and break-even
+
+### FastAPI Backend
+
+Implemented endpoints:
+
+```text
+GET  /
+POST /analyze
+POST /analyze/stream
+POST /compare
+POST /compare/stream
+GET  /history/{session_id}
+GET  /metrics
 ```
-event: thought
-event: tool_call_started
-event: tool_call_finished
-event: final_answer
-```
 
-### Redis Caching & Rate Limiting
-Repeated ticker lookups hit Redis instead of the data provider. Rate limiting is enforced at 10 requests/min per API key.
+The streaming endpoints use Server-Sent Events so clients can display live thoughts, tool calls, tool results, and final answers.
+
+### Redis Caching, Rate Limiting, and History
+
+Redis is used for:
+
+- API rate limiting by API key
+- caching repeated tool responses
+- storing session history
+
+This reduces duplicate market-data calls and adds basic backend production hygiene.
+
+### Streamlit Demo UI
+
+The Streamlit UI includes:
+
+- preset demo queries
+- live streamed final answer
+- trace ID display
+- live thoughts
+- tool call/result panel
+- grounded numbers table extracted from tool observations
+- raw trace inspection
 
 ---
 
 ## Evaluation
 
-AI Investment Copilot includes a layered evaluation system designed to test both deterministic financial calculations and LLM behavior.
+AI Investment Copilot includes a layered evaluation system for both deterministic finance logic and LLM behavior.
 
 ### Evaluation Layers
 
 **1. Deterministic Unit Tests**
+
 The financial calculation layer is tested with `pytest`, including:
-- cash-secured put payoff metrics
+
+- cash-secured-put payoff metrics
 - annualized return calculations
 - technical indicators such as SMA, EMA, MACD, Bollinger Bands, and RSI
-- mocked tool wrappers for market-data and options-analysis tools
+- mocked market-data and options-tool wrappers
+- metrics/report/storage utilities
 
 **2. Golden Dataset**
-A curated golden dataset of benchmark investment queries covers:
+
+The project includes a JSONL benchmark set covering:
+
 - cash-secured put analysis
 - explicit strike preservation
 - explicit expiration preservation
@@ -120,23 +189,28 @@ A curated golden dataset of benchmark investment queries covers:
 - ambiguous company-name queries
 
 **3. Deterministic Agent Checks**
-The eval runner executes golden queries and checks:
-- whether expected tools were used
-- whether explicit user constraints were preserved
-- whether required concepts appeared in the final answer
-- whether forbidden behavior appeared
 
-**4. LLM-as-Judge Scoring**
-A secondary judge model scores final answers against the tool trace on:
+The eval runner executes golden queries and checks:
+
+- expected tool usage
+- preservation of explicit user constraints
+- required answer concepts
+- forbidden behavior
+
+**4. LLM-as-Judge**
+
+A judge model scores final answers against the tool trace on:
+
 - factual grounding
 - reasoning quality
 - hallucination control
-- overall answer quality
+- overall quality
 
-The judge is instructed to evaluate only against the provided tool trace, not external market knowledge.
+The judge is instructed to use only the provided query, trace, and final answer rather than external market knowledge.
 
-**5. Eval Persistence and Reports**
-Eval runs can be saved to a local SQLite database and converted into Markdown reports for inspection and portfolio documentation.
+**5. Persistence and Reports**
+
+Eval runs can be saved to a local SQLite database and converted into Markdown reports.
 
 ### Running Evaluations
 
@@ -146,7 +220,7 @@ Run deterministic tests:
 pytest
 ```
 
-Run the golden eval suite with judge scoring and persistence:
+Run golden evals with judge scoring and persistence:
 
 ```bash
 python -m evals.run_golden_eval --limit 10 --judge --save-db
@@ -158,7 +232,7 @@ List saved eval runs:
 python -m evals.list_runs
 ```
 
-Generate a Markdown report from the latest saved run:
+Generate a Markdown report:
 
 ```bash
 python -m evals.generate_report
@@ -166,108 +240,178 @@ python -m evals.generate_report
 
 ---
 
+## Observability
+
+The backend includes trace IDs, structured logs, and lightweight metrics.
+
+### Trace IDs
+
+Every request receives a `trace_id`, which is propagated through:
+
+- API responses
+- streaming SSE events
+- ReAct trace entries
+- tool observations
+- saved session history
+- JSON logs
+
+Example response:
+
+```json
+{
+  "status": "success",
+  "trace_id": "acde7819-9c63-4c06-bd5d-73d9a0eb53c4",
+  "answer": "...",
+  "trace": []
+}
+```
+
+### Structured Logs
+
+Tool execution logs include:
+
+- `trace_id`
+- `tool_name`
+- `latency_ms`
+- `success`
+- `cache_hit`
+- input summary
+- output summary or error
+
+### Metrics
+
+The protected `/metrics` endpoint returns request and tool metrics:
+
+```bash
+curl -X GET "http://127.0.0.1:8000/metrics" \
+  -H "X-API-Key: dev-secret-key"
+```
+
+Example:
+
+```json
+{
+  "requests": {
+    "count": 2,
+    "p50_latency_ms": 1735.11,
+    "p95_latency_ms": 2567.42
+  },
+  "tools": {
+    "count": 2,
+    "failure_rate": 0.0,
+    "cache_hit_rate": 0.5,
+    "success_count": 2,
+    "failure_count": 0,
+    "cache_hit_count": 1,
+    "cache_miss_count": 1
+  }
+}
+```
+
+Current metrics are in-process and reset when the server restarts. They are designed to be exportable to a production metrics system later.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Agent | ReAct loop, Gemini (LLM backbone) |
-| API | FastAPI, SSE, Pydantic v2 |
-| Caching / Rate limiting | Redis |
-| Frontend | Streamlit (client-only mode) |
-| Data validation | Pydantic schemas on all tool I/O |
-| Testing | pytest, LLM-as-judge eval |
-| Persistence | PostgreSQL |
+| LLM | Gemini API |
+| Agent | Custom ReAct loop |
+| API | FastAPI, Server-Sent Events |
+| Schemas | Pydantic |
+| Frontend | Streamlit |
+| Data | yfinance |
+| Cache / Rate Limit / History | Redis |
+| Eval Persistence | SQLite |
+| Testing | pytest, pytest-mock |
+| Packaging | Docker, Docker Compose |
+| CI | GitHub Actions |
+| Observability | trace IDs, JSON logs, in-process metrics |
 
 ---
 
 ## Project Structure
 
-agents/     Agent orchestration and reasoning loops
-
-tools/      Tool implementations and registry
-
-analysis/   Financial analysis and risk calculations
-
-api/        FastAPI backend and authentication
-
-apps/       Streamlit frontend
-
-evals/      Golden dataset evaluation framework
-
-tests/      Unit and integration tests
-
-```
+```text
 .
 ├── agents/
 │   ├── react_agent.py
-│   ├── stock_agent.py
 │   └── schemas.py
 ├── analysis/
-│   ├── stock_analysis.py
-│   └── risk_metrics.py
+│   ├── risk_metrics.py
+│   └── stock_analysis.py
 ├── api/
 │   ├── app.py
-│   ├── service.py
 │   ├── auth.py
-│   └── rate_limit.py
+│   ├── history.py
+│   ├── rate_limit.py
+│   ├── redis_client.py
+│   ├── schemas.py
+│   └── service.py
 ├── apps/
 │   └── streamlit_app.py
 ├── evals/
+│   ├── generate_report.py
 │   ├── golden_queries.jsonl
 │   ├── judge.py
+│   ├── load_golden.py
 │   ├── run_golden_eval.py
-│   └── generate_report.py
+│   └── store_results.py
+├── observability/
+│   ├── logging.py
+│   └── metrics.py
 ├── tools/
+│   ├── basic_market_tools.py
+│   ├── cache.py
 │   ├── market_data.py
 │   ├── options_tools.py
-│   ├── cache.py
-│   └── registry.py
-└── tests/
+│   ├── registry.py
+│   └── setup_registry.py
+├── tests/
+├── Dockerfile
+├── docker-compose.yml
+└── requirements.txt
 ```
 
 ---
 
-## Roadmap
+## Local Setup
 
-This project is under active development. Phases 1 and 2 are complete; Phase 3 is currently in progress.
-
-| Phase | Goal | Status |
-|---|---|---|
-| 1 | ReAct agent loop, tool contracts, quant tools, guardrails | ✅ Complete |
-| 2 | FastAPI backend, SSE streaming, Redis, API hygiene | ✅ Complete |
-| 3 | Deterministic tests, golden dataset (40 prompts), judge-based eval, Postgres persistence | ✅ Complete |
-| 4 | Docker, Terraform (ECS Fargate + ALB), GitHub Actions CI/CD | 🔄 In progress |
-| 5 | Distributed tracing, structured JSON logs, latency metrics (p50/p95) | 📋 Planned |
-| 6 | Polished demo UI, debug side panel (live thoughts, tool traces), architecture diagram | 📋 Planned |
-
----
-
-## Getting Started
-
-> **Note:** Full setup instructions will be added in Phase 4 alongside Docker and environment config. In the meantime, the steps below cover local development.
-
-**Prerequisites:** Python 3.11+, Redis
+### 1. Install Dependencies
 
 ```bash
-git clone https://github.com/Andrewchenyh/ai-investment-copilot
-cd ai-investment-copilot
 pip install -r requirements.txt
 ```
 
-Set environment variables:
+### 2. Configure Environment
 
-```bash
-GEMINI_API_KEY=...
-REDIS_URL=redis://localhost:6379
+Create a `.env` file:
+
+```env
+GEMINI_API_KEY=your_gemini_key
+COPILOT_API_KEY=dev-secret-key
+REDIS_URL=redis://localhost:6379/0
+API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Start the backend:
+### 3. Run Redis
+
+If running Redis locally:
 
 ```bash
-uvicorn app.api.main:app --reload
+redis-server
 ```
 
-Start the frontend:
+Or use Docker Compose as shown below.
+
+### 4. Run FastAPI
+
+```bash
+uvicorn api.app:app --reload
+```
+
+### 5. Run Streamlit
 
 ```bash
 streamlit run apps/streamlit_app.py
@@ -275,13 +419,106 @@ streamlit run apps/streamlit_app.py
 
 ---
 
-## Why this project
+## Docker
 
-Most LLM finance demos hardcode an analysis sequence and dress it up as an agent. This one isn't. The ReAct loop decides at runtime which tools to call, in what order, based on the specific query. The eval framework (Phase 3) is being built to measure whether that actually produces better answers — and to catch regressions as the model or prompts change.
+Build the backend image:
+
+```bash
+docker build -t ai-investment-copilot-api .
+```
+
+Run with a local `.env` file:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -p 8000:8000 \
+  ai-investment-copilot-api
+```
+
+Run FastAPI and Redis together:
+
+```bash
+docker compose up --build
+```
+
+---
+
+## API Examples
+
+### Analyze
+
+```bash
+curl -X POST "http://127.0.0.1:8000/analyze" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-secret-key" \
+  -d '{"session_id":"demo-session","query":"What is ORCL recent historical volatility?"}'
+```
+
+### Streaming Analyze
+
+```bash
+curl -N -X POST "http://127.0.0.1:8000/analyze/stream" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-secret-key" \
+  -d '{"session_id":"demo-session","query":"Is it a good time to write a cash-secured put on ORCL?"}'
+```
+
+### Compare
+
+```bash
+curl -X POST "http://127.0.0.1:8000/compare" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-secret-key" \
+  -d '{"tickers":["ORCL","MSFT"],"question":"Which one looks better for writing cash-secured puts?","session_id":"demo-session"}'
+```
+
+### History
+
+```bash
+curl -X GET "http://127.0.0.1:8000/history/demo-session" \
+  -H "X-API-Key: dev-secret-key"
+```
+
+---
+
+## CI
+
+GitHub Actions is configured for:
+
+- dependency installation
+- `pytest`
+- Docker image build
+- manual golden eval workflow with uploaded artifacts
+
+Live evals are kept as a manual workflow because they call external APIs and may incur model cost.
+
+---
+
+## Roadmap Status
+
+| Phase | Goal | Status |
+|---|---|---|
+| 1 | ReAct agent loop, tool registry, Pydantic tool contracts, finance tools | Complete |
+| 2 | FastAPI, SSE streaming, API keys, Redis rate limiting/cache/history | Complete |
+| 3 | Tests, golden dataset, LLM judge, SQLite persistence, reports | Complete |
+| 4 | Docker, Compose, CI, manual eval workflow | Core complete, full AWS/Terraform deferred |
+| 5 | Trace IDs, structured logs, metrics | Complete |
+| 6 | Streamlit polish, README/case study, diagrams/screenshots | In progress |
+
+---
+
+## Design Decisions
+
+- **LLM plans, tools compute.** The model decides which tool to call, but deterministic Python functions compute financial metrics.
+- **Trace-first debugging.** Every request has a `trace_id` so failures can be followed through API, agent, and tool layers.
+- **Evaluation before scale.** The project includes eval infrastructure before expanding the benchmark set.
+- **Cloud IaC deferred.** Heavy AWS/Terraform work is intentionally deferred to prioritize applied AI engineering, evals, observability, and demo quality.
 
 ---
 
 ## Author
 
-**Andrew Chen** · Statistics & Economics, UC Davis  
-[LinkedIn](https://www.linkedin.com/in/andrew-yihanchen) · [GitHub](https://github.com/Andrewchenyh)
+Andrew Chen  
+Statistics and Economics, UC Davis  
+[LinkedIn](https://www.linkedin.com/in/andrew-yihanchen) | [GitHub](https://github.com/Andrewchenyh)
