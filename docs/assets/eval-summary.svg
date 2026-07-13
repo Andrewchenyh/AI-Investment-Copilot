@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="360" viewBox="0 0 920 360" role="img" aria-labelledby="title desc">
+  <title id="title">AI Investment Copilot eval summary</title>
+  <desc id="desc">Latest local eval run summary showing one of two deterministic cases passed and average judge scores of five out of five.</desc>
+  <rect width="920" height="360" fill="#f7f8fa"/>
+  <rect x="28" y="28" width="864" height="304" rx="8" fill="#ffffff" stroke="#d9dee5"/>
+
+  <text x="56" y="70" font-family="Helvetica, Arial, sans-serif" font-size="24" font-weight="700" fill="#1f2933">Latest Eval Snapshot</text>
+  <text x="56" y="98" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#687076">Golden eval run with deterministic checks and LLM-as-judge scoring</text>
+
+  <text x="56" y="145" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#4f5661">Deterministic checks</text>
+  <rect x="56" y="162" width="360" height="24" rx="4" fill="#e6e8eb"/>
+  <rect x="56" y="162" width="180" height="24" rx="4" fill="#2f7d5c"/>
+  <text x="430" y="180" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#1f2933">1 / 2 passed</text>
+  <text x="56" y="208" font-family="Helvetica, Arial, sans-serif" font-size="36" font-weight="700" fill="#1f2933">50.0%</text>
+  <text x="170" y="208" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#687076">pass rate</text>
+
+  <text x="56" y="258" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#687076">Failed deterministic check: csp_orcl_explicit_strike mention_pass</text>
+  <text x="56" y="282" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#687076">Judge still scored both answers highly for grounding, reasoning, and hallucination control.</text>
+
+  <text x="530" y="145" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#4f5661">Average judge scores</text>
+
+  <text x="530" y="180" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">Factual grounding</text>
+  <rect x="690" y="164" width="150" height="18" rx="4" fill="#2f7d5c"/>
+  <text x="850" y="179" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">5.0</text>
+
+  <text x="530" y="215" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">Reasoning quality</text>
+  <rect x="690" y="199" width="150" height="18" rx="4" fill="#2f7d5c"/>
+  <text x="850" y="214" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">5.0</text>
+
+  <text x="530" y="250" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">Hallucination control</text>
+  <rect x="690" y="234" width="150" height="18" rx="4" fill="#2f7d5c"/>
+  <text x="850" y="249" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">5.0</text>
+
+  <text x="530" y="285" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">Overall</text>
+  <rect x="690" y="269" width="150" height="18" rx="4" fill="#2f7d5c"/>
+  <text x="850" y="284" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#1f2933">5.0</text>
+</svg>
