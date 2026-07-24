@@ -151,10 +151,27 @@ class ReActAgent:
             }
 
             if agent_step.action_type == "final_answer":
+                final_answer = (agent_step.final_answer or "").strip()
+                if not final_answer:
+                    error_payload = {
+                        "status": "error",
+                        "trace_id": trace_id,
+                        "message": (
+                            "The agent selected a final answer but did not provide "
+                            "any answer text."
+                        ),
+                        "trace": trace,
+                    }
+                    yield {
+                        "event": "error",
+                        "data": error_payload,
+                    }
+                    return
+
                 final_payload = {
                     "status": "success",
                     "trace_id": trace_id,
-                    "answer": agent_step.final_answer,
+                    "answer": final_answer,
                     "trace": trace,
                 }
                 yield {
@@ -167,7 +184,10 @@ class ReActAgent:
                 error_payload = {
                     "status": "error",
                     "trace_id": trace_id,
-                    "message": "...",
+                    "message": (
+                        "The agent selected a tool call but did not provide "
+                        "the required tool details."
+                    ),
                     "trace": trace,
                 }
                 yield {
@@ -228,7 +248,10 @@ class ReActAgent:
         error_payload = {
             "status": "error",
             "trace_id": trace_id,
-            "message": "...",
+            "message": (
+                f"The agent reached the maximum of {self.max_steps} steps "
+                "without producing a final answer."
+            ),
             "trace": trace,
         }
         yield {
