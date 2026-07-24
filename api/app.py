@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -22,6 +24,7 @@ from observability.logging import configure_json_logging
 from observability.metrics import metrics
 
 configure_json_logging()
+logger = logging.getLogger(__name__)
 app = FastAPI(
     title="AI Investment Copilot API",
     version="0.1.0",
@@ -43,7 +46,11 @@ async def analyze_json(
     try:
         return await run_analysis(request.query, session_id=request.session_id)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Analysis request failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Analysis request failed.",
+        ) from exc
 
 
 @app.post("/analyze/stream")
@@ -58,7 +65,11 @@ async def analyze_stream(
             media_type="text/event-stream",
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Analysis stream could not be started")
+        raise HTTPException(
+            status_code=500,
+            detail="Analysis stream could not be started.",
+        ) from exc
     
 
 @app.post("/compare", response_model=CompareResponse)
@@ -74,7 +85,11 @@ async def compare_json(
             session_id=request.session_id,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Comparison request failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Comparison request failed.",
+        ) from exc
 
 
 @app.post("/compare/stream")
@@ -93,7 +108,11 @@ async def compare_stream(
             media_type="text/event-stream",
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Comparison stream could not be started")
+        raise HTTPException(
+            status_code=500,
+            detail="Comparison stream could not be started.",
+        ) from exc
     
 
 @app.get("/history/{session_id}", response_model=HistoryResponse)
