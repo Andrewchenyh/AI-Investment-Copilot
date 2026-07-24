@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from agents.react_agent import ReActAgent
 from tools.setup_registry import build_tool_registry
 
@@ -7,7 +9,7 @@ def main() -> None:
     agent = ReActAgent(tool_registry=registry, max_steps=6)
 
     query = "Is it a good time to write a cash-secured put on orcl?"
-    response = agent.ask(query)
+    response = agent.ask(query, trace_id=str(uuid4()))
 
     print(response["status"])
     if response["status"] == "success":
