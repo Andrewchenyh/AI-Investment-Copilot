@@ -1,22 +1,31 @@
 import json
 import os
 from typing import Any
-from pydantic import ValidationError
+
 from dotenv import load_dotenv
 from google import genai
+from pydantic import ValidationError
 
 from agents.schemas import AgentStep, ToolObservation
 
+
 class AgentStepValidationError(RuntimeError):
     """Raised after the model repeatedly returns an invalid AgentStep."""
-    
+
+
 class ReActAgent:
-    def __init__(self, tool_registry, model_id: str = "gemini-3.1-flash-lite", max_steps: int = 10, max_step_validation_retries: int = 1):
+    def __init__(
+        self,
+        tool_registry,
+        model_id: str = "gemini-3.1-flash-lite",
+        max_steps: int = 10,
+        max_step_validation_retries: int = 1,
+    ):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set.")
-        
+
         if max_step_validation_retries < 0:
             raise ValueError("max_step_validation_retries cannot be negative.")
 
@@ -65,7 +74,12 @@ class ReActAgent:
                 - tool_args_json must be a valid JSON object encoded as a string.
                 """
 
-    def _llm_step(self, user_query: str, trace: list[dict[str, Any]], is_validation_retry: bool = False) -> AgentStep:
+    def _llm_step(
+        self,
+        user_query: str,
+        trace: list[dict[str, Any]],
+        is_validation_retry: bool = False,
+    ) -> AgentStep:
         prompt = self._build_prompt(user_query, trace)
         if is_validation_retry:
             prompt += """
@@ -85,9 +99,13 @@ class ReActAgent:
             },
         )
 
-        return AgentStep.model_validate_json(response.text) # type: ignore
-    
-    def _get_validated_llm_step(self, user_query: str, trace: list[dict[str, Any]],) -> AgentStep:
+        return AgentStep.model_validate_json(response.text)  # type: ignore
+
+    def _get_validated_llm_step(
+        self,
+        user_query: str,
+        trace: list[dict[str, Any]],
+    ) -> AgentStep:
         last_error: ValidationError | None = None
         total_attempts = self.max_step_validation_retries + 1
 
@@ -152,10 +170,10 @@ class ReActAgent:
             }
 
         return final_result
-    
+
     def run_with_events(self, user_query: str, trace_id: str):
         trace: list[dict[str, Any]] = []
-        
+
         yield {
             "event": "start",
             "data": {
@@ -167,7 +185,10 @@ class ReActAgent:
 
         for step_number in range(1, self.max_steps + 1):
             try:
-                agent_step = self._get_validated_llm_step(user_query=user_query, trace=trace)
+                agent_step = self._get_validated_llm_step(
+                    user_query=user_query,
+                    trace=trace,
+                )
             except AgentStepValidationError:
                 error_payload = {
                     "status": "error",
@@ -178,13 +199,13 @@ class ReActAgent:
                     ),
                     "trace": trace,
                 }
-                
+
                 yield {
                     "event": "error",
                     "data": error_payload,
                 }
                 return
-                       
+
             thought_payload = {
                 "trace_id": trace_id,
                 "step": step_number,
