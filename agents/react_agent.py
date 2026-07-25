@@ -1,24 +1,30 @@
 import json
 import os
 from typing import Any
-
+from pydantic import ValidationError
 from dotenv import load_dotenv
 from google import genai
 
 from agents.schemas import AgentStep, ToolObservation
 
-
+class AgentStepValidationError(RuntimeError):
+    """Raised after the model repeatedly returns an invalid AgentStep."""
+    
 class ReActAgent:
-    def __init__(self, tool_registry, model_id: str = "gemini-3.1-flash-lite", max_steps: int = 10):
+    def __init__(self, tool_registry, model_id: str = "gemini-3.1-flash-lite", max_steps: int = 10, max_step_validation_retries: int = 1):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY is not set.")
+        
+        if max_step_validation_retries < 0:
+            raise ValueError("max_step_validation_retries cannot be negative.")
 
         self.client = genai.Client(api_key=api_key)
         self.model_id = model_id
         self.tool_registry = tool_registry
         self.max_steps = max_steps
+        self.max_step_validation_retries = max_step_validation_retries
 
     def _build_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
         tool_descriptions = self.tool_registry.describe_tools()
@@ -59,8 +65,16 @@ class ReActAgent:
                 - tool_args_json must be a valid JSON object encoded as a string.
                 """
 
-    def _llm_step(self, user_query: str, trace: list[dict[str, Any]]) -> AgentStep:
+    def _llm_step(self, user_query: str, trace: list[dict[str, Any]], is_validation_retry: bool = False) -> AgentStep:
         prompt = self._build_prompt(user_query, trace)
+        if is_validation_retry:
+            prompt += """
+            Your previous response failed AgentStep validation.
+
+            Return exactly one valid action:
+            - For action_type "tool_call", populate tool_call and omit final_answer.
+            - For action_type "final_answer", provide a non-empty final_answer and omit tool_call.
+            """
 
         response = self.client.models.generate_content(
             model=self.model_id,
@@ -72,6 +86,24 @@ class ReActAgent:
         )
 
         return AgentStep.model_validate_json(response.text) # type: ignore
+    
+    def _get_validated_llm_step(self, user_query: str, trace: list[dict[str, Any]],) -> AgentStep:
+        last_error: ValidationError | None = None
+        total_attempts = self.max_step_validation_retries + 1
+
+        for attempt in range(total_attempts):
+            try:
+                return self._llm_step(
+                    user_query=user_query,
+                    trace=trace,
+                    is_validation_retry=attempt > 0,
+                )
+            except ValidationError as exc:
+                last_error = exc
+
+        raise AgentStepValidationError(
+            f"The model returned an invalid AgentStep after {total_attempts} attempts."
+        ) from last_error
 
     def _parse_tool_args(self, tool_args_json: str) -> dict[str, Any]:
         try:
