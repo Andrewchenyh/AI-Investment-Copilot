@@ -153,7 +153,6 @@ class ReActAgent:
 
         return final_result
     
-    
     def run_with_events(self, user_query: str, trace_id: str):
         trace: list[dict[str, Any]] = []
         
@@ -167,8 +166,25 @@ class ReActAgent:
         }
 
         for step_number in range(1, self.max_steps + 1):
-            agent_step = self._llm_step(user_query=user_query, trace=trace)
-
+            try:
+                agent_step = self._get_validated_llm_step(user_query=user_query, trace=trace)
+            except AgentStepValidationError:
+                error_payload = {
+                    "status": "error",
+                    "trace_id": trace_id,
+                    "message": (
+                        "The model repeatedly returned an invalid action. "
+                        "Please retry the request."
+                    ),
+                    "trace": trace,
+                }
+                
+                yield {
+                    "event": "error",
+                    "data": error_payload,
+                }
+                return
+                       
             thought_payload = {
                 "trace_id": trace_id,
                 "step": step_number,
