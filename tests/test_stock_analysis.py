@@ -1,7 +1,20 @@
 import pandas as pd
 import pytest
 
-from analysis.stock_analysis import TechnicalIndicators
+from analysis.stock_analysis import TechnicalIndicators, add_all_indicators
+
+
+DEFAULT_INDICATOR_COLUMNS = {
+    "SMA_20",
+    "EMA_20",
+    "RSI_14",
+    "MACD",
+    "Signal",
+    "Histogram",
+    "BB_20_Middle",
+    "BB_20_Upper",
+    "BB_20_Lower",
+}
 
 
 def make_price_df(prices: list[float]) -> pd.DataFrame:
@@ -46,7 +59,8 @@ def test_macd_constant_series() -> None:
     assert result["MACD"].iloc[-1] == pytest.approx(0)
     assert result["Signal"].iloc[-1] == pytest.approx(0)
     assert result["Histogram"].iloc[-1] == pytest.approx(0)
-    
+
+
 def test_rsi_flat_series_returns_50_after_warmup() -> None:
     df = make_price_df([10] * 20)
 
@@ -72,3 +86,40 @@ def test_rsi_all_losses_returns_0_after_warmup() -> None:
 
     assert result.iloc[:14].isna().all()
     assert result.iloc[14:].eq(0).all()
+
+
+def test_add_all_indicators_uses_defaults_when_config_is_omitted() -> None:
+    df = make_price_df(list(range(1, 41)))
+
+    result = add_all_indicators(df)
+
+    assert DEFAULT_INDICATOR_COLUMNS <= set(result.columns)
+    assert list(df.columns) == ["Close"]
+
+
+def test_add_all_indicators_uses_defaults_for_none_windows() -> None:
+    df = make_price_df(list(range(1, 41)))
+    config = {
+        "sma_windows": None,
+        "ema_windows": None,
+        "rsi_windows": None,
+        "bb_windows": None,
+    }
+
+    result = add_all_indicators(df, config) # type: ignore
+
+    assert DEFAULT_INDICATOR_COLUMNS <= set(result.columns)
+
+
+def test_add_all_indicators_empty_lists_disable_optional_families() -> None:
+    df = make_price_df(list(range(1, 41)))
+    config = {
+        "sma_windows": [],
+        "ema_windows": [],
+        "rsi_windows": [],
+        "bb_windows": [],
+    }
+
+    result = add_all_indicators(df, config) # type: ignore
+
+    assert list(result.columns) == ["Close", "MACD", "Signal", "Histogram"]
