@@ -6,6 +6,7 @@ from agents.react_agent import (
 )
 from agents.schemas import AgentStep
 
+
 def make_invalid_step() -> AgentStep:
     return AgentStep.model_validate(
         {
