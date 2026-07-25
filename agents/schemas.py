@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ToolCall(BaseModel):
-    tool_name: str = Field(..., min_length = 1, description="Name of the tool to execute")
+    tool_name: str = Field(..., min_length=1, description="Name of the tool to execute")
     tool_args_json: str = Field(
         default="{}",
         description="JSON object string containing the arguments to pass into the tool"
@@ -24,7 +24,7 @@ class AgentStep(BaseModel):
         default=None,
         description="Required when action_type is final_answer"
     )
-    
+
     @model_validator(mode="after")
     def validate_action_payload(self) -> "AgentStep":
         if self.action_type == "tool_call":
