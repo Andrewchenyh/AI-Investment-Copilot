@@ -1,22 +1,11 @@
 """
-technical_indicators.py
+Deterministic technical-indicator calculations for AI Investment Copilot.
 
-Technical indicator calculations for the Stock Copilot project.
-Implements common indicators used in quantitative trading analysis.
-
-Indicators included:
-- Simple Moving Average (SMA)
-- Exponential Moving Average (EMA)
-- Relative Strength Index (RSI)
-- MACD
-- Bollinger Bands
+All functions operate on caller-provided pandas data and perform no external
+I/O. Market-data retrieval and presentation belong to higher-level modules.
 """
 
 import pandas as pd
-import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from tools.market_data import MarketDataEngine
 
 class TechnicalIndicators:
     """
@@ -146,51 +135,36 @@ class TechnicalIndicators:
 
 
 
-def add_all_indicators(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+def add_all_indicators(
+    df: pd.DataFrame,
+    config: dict[str, list[int] | None] | None = None,
+) -> pd.DataFrame:
     """
     Adds technical indicators with configurable parameters.
     """
     df = df.copy()
     indicators = TechnicalIndicators()
-   
+    resolved_config = {} if config is None else config
+
+    def windows_for(key: str, default: int) -> list[int]:
+        windows = resolved_config.get(key)
+        return [default] if windows is None else windows
+
     # Technical Indicators with single column returns
-    for w in config.get('sma_windows', [20]):
+    for w in windows_for("sma_windows", 20):
         df[f'SMA_{w}'] = indicators.sma(df, w)
- 
-    for w in config.get('ema_windows', [20]):
+
+    for w in windows_for("ema_windows", 20):
         df[f'EMA_{w}'] = indicators.ema(df, w)
-                
-    for w in config.get('rsi_windows', [14]):
+
+    for w in windows_for("rsi_windows", 14):
         df[f'RSI_{w}'] = indicators.rsi(df, w)
 
     macd_data = indicators.macd(df)
-    df = df.join(macd_data) 
-    
-    for w in config.get('bb_windows', [20]):    
+    df = df.join(macd_data)
+
+    for w in windows_for("bb_windows", 20):
         bb_data = indicators.bollinger_bands(df, w)
-        df = df.join(bb_data) 
-    
+        df = df.join(bb_data)
+
     return df
-
-
-# Test run
-
-if __name__ == "__main__":
-
-    engine = MarketDataEngine()
-
-    ticker = "AAPL"
-
-    data = engine.get_full_stock_data(ticker)
-
-    df = data["price_data"]
-    config = {
-        ticker:'AAPL',
-        'sma_windows':[50],
-        'ema_windows':[20],
-        'rsi_windows':[7],
-        'bb_windows':[20]
-
-    }
-    print(add_all_indicators(df, config))
-    
