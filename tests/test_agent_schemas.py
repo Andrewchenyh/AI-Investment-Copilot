@@ -18,8 +18,8 @@ def test_tool_action_requires_only_tool_call() -> None:
 
     assert step.tool_call == tool_call
     assert step.final_answer is None
-    
-    
+
+
 def test_final_action_normalizes_answer_text() -> None:
     step = AgentStep(
         thought="The analysis is complete.",
@@ -29,16 +29,16 @@ def test_final_action_normalizes_answer_text() -> None:
 
     assert step.final_answer == "ORCL is trading at the observed price."
     assert step.tool_call is None
-    
-    
+
+
 def test_tool_action_rejects_missing_tool_call() -> None:
     with pytest.raises(ValidationError, match="tool_call is required"):
         AgentStep(
             thought="I need market data.",
             action_type="tool_call",
         )
-        
-        
+
+
 def test_tool_action_rejects_final_answer() -> None:
     with pytest.raises(
         ValidationError,
@@ -53,8 +53,8 @@ def test_tool_action_rejects_final_answer() -> None:
             ),
             final_answer="Contradictory answer.",
         )
-        
-        
+
+
 def test_final_action_rejects_missing_answer() -> None:
     with pytest.raises(
         ValidationError,
@@ -64,8 +64,8 @@ def test_final_action_rejects_missing_answer() -> None:
             thought="The analysis is complete.",
             action_type="final_answer",
         )
-        
-        
+
+
 def test_final_action_rejects_whitespace_only_answer() -> None:
     with pytest.raises(
         ValidationError,
@@ -76,8 +76,8 @@ def test_final_action_rejects_whitespace_only_answer() -> None:
             action_type="final_answer",
             final_answer="   ",
         )
-        
-        
+
+
 def test_final_action_rejects_tool_call() -> None:
     with pytest.raises(
         ValidationError,
@@ -92,7 +92,7 @@ def test_final_action_rejects_tool_call() -> None:
             ),
             final_answer="Final answer.",
         )
-        
+
 
 def test_tool_call_rejects_empty_tool_name() -> None:
     with pytest.raises(ValidationError):
