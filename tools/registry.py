@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 ToolInput = TypeVar("ToolInput", bound=BaseModel)
 ToolOutput = TypeVar("ToolOutput", bound=BaseModel)
 
-class RegisteredTool:
+class RegisteredTool(Generic[ToolInput, ToolOutput]):
     def __init__(
         self,
         name: str,
@@ -38,14 +38,20 @@ class RegisteredTool:
 
 class ToolRegistry:
     def __init__(self):
-        self._tools: dict[str, RegisteredTool] = {}
+        self._tools: dict[str, RegisteredTool[Any, Any]] = {}
 
-    def register(self, tool: RegisteredTool) -> None:
+    def register(
+        self,
+        tool: RegisteredTool[Any, Any],
+    ) -> None:
         if tool.name in self._tools:
             raise ValueError(f"Tool '{tool.name}' is already registered.")
         self._tools[tool.name] = tool
 
-    def get_tool(self, tool_name: str) -> RegisteredTool:
+    def get_tool(
+        self,
+        tool_name: str,
+    ) -> RegisteredTool[Any, Any]:
         if tool_name not in self._tools:
             raise ValueError(f"Unknown tool '{tool_name}'.")
         return self._tools[tool_name]
