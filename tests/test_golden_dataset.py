@@ -100,3 +100,37 @@ def test_load_golden_queries_rejects_invalid_schema(
         match=r"Invalid golden query schema on line 1",
     ):
         load_golden_queries(golden_path)
+
+
+def test_schema_error_reports_correct_jsonl_line(tmp_path: Path) -> None:
+    valid_record = {
+        "id": "valid_record",
+        "category": "technical_analysis",
+        "query": "Analyze AAPL.",
+        "expected_tools": ["analyze_technical_indicators"],
+        "notes": "A valid record.",
+    }
+    invalid_record = {
+        "id": "invalid_record",
+        "category": "technical_analysis",
+        "expected_tools": ["analyze_technical_indicators"],
+        "notes": "Missing query.",
+    }
+
+    golden_path = tmp_path / "mixed_golden.jsonl"
+    golden_path.write_text(
+        "\n".join(
+            [
+                json.dumps(valid_record),
+                json.dumps(invalid_record),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Invalid golden query schema on line 2",
+    ):
+        load_golden_queries(golden_path)
