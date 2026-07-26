@@ -33,7 +33,7 @@ def _wilder_average(values: pd.Series, window: int) -> pd.Series:
         adjust=False,
     ).mean()
 
-    result.iloc[window:] = smoothed_values.to_numpy()
+    result.iloc[window:] = smoothed_values.to_numpy() # type: ignore
     return result
 
 
