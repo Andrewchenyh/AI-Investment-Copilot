@@ -123,3 +123,69 @@ def test_add_all_indicators_empty_lists_disable_optional_families() -> None:
     result = add_all_indicators(df, config) # type: ignore
 
     assert list(result.columns) == ["Close", "MACD", "Signal", "Histogram"]
+
+
+@pytest.mark.parametrize(
+    ("method_name", "invalid_window"),
+    [
+        pytest.param("sma", 0, id="sma-zero"),
+        pytest.param("ema", -1, id="ema-negative"),
+        pytest.param("rsi", 1.5, id="rsi-non-integer"),
+        pytest.param("bollinger_bands", True, id="bollinger-boolean"),
+    ],
+)
+def test_single_window_indicators_reject_invalid_windows(
+    method_name: str,
+    invalid_window: object,
+) -> None:
+    df = make_price_df([1, 2, 3, 4, 5])
+    method = getattr(TechnicalIndicators, method_name)
+
+    with pytest.raises(
+        ValueError,
+        match=r"^window must be a positive integer$",
+    ):
+        method(df, window=invalid_window)
+
+
+@pytest.mark.parametrize(
+    "parameter_name",
+    [
+        "short_window",
+        "long_window",
+        "signal_window",
+    ],
+)
+def test_macd_rejects_invalid_windows(parameter_name: str) -> None:
+    df = make_price_df([1, 2, 3, 4, 5])
+    kwargs = {parameter_name: 0}
+
+    with pytest.raises(
+        ValueError,
+        match=rf"^{parameter_name} must be a positive integer$",
+    ):
+        TechnicalIndicators.macd(df, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("short_window", "long_window"),
+    [
+        pytest.param(26, 12, id="short-greater-than-long"),
+        pytest.param(12, 12, id="windows-equal"),
+    ],
+)
+def test_macd_requires_short_window_less_than_long_window(
+    short_window: int,
+    long_window: int,
+) -> None:
+    df = make_price_df([1, 2, 3, 4, 5])
+
+    with pytest.raises(
+        ValueError,
+        match=r"^short_window must be less than long_window$",
+    ):
+        TechnicalIndicators.macd(
+            df,
+            short_window=short_window,
+            long_window=long_window,
+        )
