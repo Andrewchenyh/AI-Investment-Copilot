@@ -7,6 +7,12 @@ from tools.basic_market_tools import (
     get_historical_volatility_tool,
 )
 
+from tools.technical_analysis_tools import (
+    TechnicalAnalysisInput,
+    TechnicalAnalysisOutput,
+    analyze_technical_indicators_tool,
+)
+
 from tools.options_tools import (
     CashSecuredPutInput,
     CashSecuredPutOutput,
@@ -15,11 +21,23 @@ from tools.options_tools import (
     analyze_cash_secured_put_tool,
     get_options_chain_tool,
 )
+
 from tools.registry import RegisteredTool, ToolRegistry
 
 
 def build_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
+
+    registry.register(
+        RegisteredTool(
+            name="analyze_technical_indicators",
+            description="Compute the latest daily technical-indicator snapshot for a "
+            "stock using SMA, EMA, RSI, MACD, and Bollinger Bands.",
+            input_model=TechnicalAnalysisInput,
+            output_model=TechnicalAnalysisOutput,
+            func=analyze_technical_indicators_tool,
+        )
+    )
 
     registry.register(
         RegisteredTool(
@@ -50,7 +68,7 @@ def build_tool_registry() -> ToolRegistry:
             func=get_options_chain_tool,
         )
     )
-    
+
     registry.register(
         RegisteredTool(
             name="analyze_cash_secured_put",
