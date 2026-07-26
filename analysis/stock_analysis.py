@@ -7,6 +7,12 @@ I/O. Market-data retrieval and presentation belong to higher-level modules.
 
 import pandas as pd
 
+
+def _validate_window(name: str, value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+
+
 class TechnicalIndicators:
     """
     Collection of technical indicator calculations.
@@ -29,6 +35,7 @@ class TechnicalIndicators:
         -------
         Series
         """
+        _validate_window("window", window)
         return df["Close"].rolling(window=window).mean()
 
     @staticmethod
@@ -38,6 +45,7 @@ class TechnicalIndicators:
 
         Gives more weight to recent prices.
         """
+        _validate_window("window", window)
         return df["Close"].ewm(span=window, adjust=False).mean()
 
     @staticmethod
@@ -55,6 +63,9 @@ class TechnicalIndicators:
         - no losses with gains returns 100
         - losses with no gains returns 0
         """
+
+        _validate_window("window", window)
+
         delta = df["Close"].diff()
 
         gain = delta.clip(lower=0)
@@ -90,6 +101,13 @@ class TechnicalIndicators:
         - Histogram
         """
 
+        _validate_window("short_window", short_window)
+        _validate_window("long_window", long_window)
+        _validate_window("signal_window", signal_window)
+
+        if short_window >= long_window:
+            raise ValueError("short_window must be less than long_window")
+
         ema_short = df["Close"].ewm(span=short_window, adjust=False).mean()
         ema_long = df["Close"].ewm(span=long_window, adjust=False).mean()
 
@@ -121,6 +139,8 @@ class TechnicalIndicators:
         - Lower Band
         """
 
+        _validate_window("window", window)
+
         sma = df["Close"].rolling(window=window).mean()
         std = df["Close"].rolling(window=window).std()
 
@@ -140,7 +160,11 @@ def add_all_indicators(
     config: dict[str, list[int] | None] | None = None,
 ) -> pd.DataFrame:
     """
-    Adds technical indicators with configurable parameters.
+    Add configured technical indicators to a copy of the input DataFrame.
+
+    Missing or None window entries use their default values. An empty
+    window list disables that indicator family. MACD is always included.
+    The input DataFrame is not modified.
     """
     df = df.copy()
     indicators = TechnicalIndicators()
