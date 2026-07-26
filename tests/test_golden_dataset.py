@@ -1,3 +1,7 @@
+import json
+from pathlib import Path
+
+import pytest
 from evals.load_golden import load_golden_queries
 from tools.setup_registry import build_tool_registry
 
@@ -9,6 +13,7 @@ def test_load_golden_queries() -> None:
     assert all("id" in record for record in records)
     assert all("query" in record for record in records)
     assert all("expected_tools" in record for record in records)
+    assert all(record["tier"] in {"core", "stress"} for record in records)
 
 
 def test_golden_query_ids_are_unique() -> None:
@@ -42,3 +47,56 @@ def test_all_golden_tool_references_are_registered() -> None:
     }
 
     assert referenced_tools <= registered_tools
+
+
+@pytest.mark.parametrize(
+    "invalid_record",
+    [
+        pytest.param(
+            {
+                "id": "missing_query",
+                "category": "technical_analysis",
+                "expected_tools": ["analyze_technical_indicators"],
+                "notes": "Missing the required query field.",
+            },
+            id="missing-required-field",
+        ),
+        pytest.param(
+            {
+                "id": "misspelled_field",
+                "category": "technical_analysis",
+                "query": "Analyze AAPL.",
+                "expected_tool": ["analyze_technical_indicators"],
+                "expected_tools": ["analyze_technical_indicators"],
+                "notes": "Contains an unknown field.",
+            },
+            id="unknown-field",
+        ),
+        pytest.param(
+            {
+                "id": "overlapping_tools",
+                "category": "technical_analysis",
+                "query": "Analyze AAPL.",
+                "expected_tools": ["analyze_technical_indicators"],
+                "optional_tools": ["analyze_technical_indicators"],
+                "notes": "The same tool cannot have both roles.",
+            },
+            id="overlapping-tool-roles",
+        ),
+    ],
+)
+def test_load_golden_queries_rejects_invalid_schema(
+    tmp_path: Path,
+    invalid_record: dict,
+) -> None:
+    golden_path = tmp_path / "invalid_golden.jsonl"
+    golden_path.write_text(
+        json.dumps(invalid_record) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Invalid golden query schema on line 1",
+    ):
+        load_golden_queries(golden_path)
