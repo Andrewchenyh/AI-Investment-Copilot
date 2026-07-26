@@ -13,6 +13,30 @@ def _validate_window(name: str, value: int) -> None:
         raise ValueError(f"{name} must be a positive integer")
 
 
+def _wilder_average(values: pd.Series, window: int) -> pd.Series:
+    """Return Wilder-smoothed values using an initial simple-average seed."""
+    result = pd.Series(
+        float("nan"),
+        index=values.index,
+        dtype=float,
+        name=values.name,
+    )
+
+    if len(values) <= window:
+        return result
+
+    seeded_values = values.iloc[window:].astype(float).copy()
+    seeded_values.iloc[0] = values.iloc[1 : window + 1].mean()
+
+    smoothed_values = seeded_values.ewm(
+        alpha=1 / window,
+        adjust=False,
+    ).mean()
+
+    result.iloc[window:] = smoothed_values.to_numpy()
+    return result
+
+
 class TechnicalIndicators:
     """
     Collection of technical indicator calculations.
@@ -51,17 +75,15 @@ class TechnicalIndicators:
     @staticmethod
     def rsi(df: pd.DataFrame, window: int = 14) -> pd.Series:
         """
-        Relative Strength Index (RSI)
+        Relative Strength Index (RSI).
 
-        Measures momentum on a scale from 0-100.
-        Typically:
-        - >70 = overbought
-        - <30 = oversold
+        Measures price momentum on a scale from 0 to 100 using Wilder's
+        smoothed average gains and losses.
 
         Edge cases:
-        - flat prices after the warmup window return 50
-        - no losses with gains returns 100
-        - losses with no gains returns 0
+        - zero average gain and zero average loss return 50
+        - positive average gain with zero average loss returns 100
+        - zero average gain with positive average loss returns 0
         """
 
         _validate_window("window", window)
@@ -71,8 +93,8 @@ class TechnicalIndicators:
         gain = delta.clip(lower=0)
         loss = -delta.clip(upper=0)
 
-        avg_gain = gain.rolling(window=window).mean()
-        avg_loss = loss.rolling(window=window).mean()
+        avg_gain = _wilder_average(gain, window)
+        avg_loss = _wilder_average(loss, window)
 
         rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
