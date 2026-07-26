@@ -189,3 +189,14 @@ def test_macd_requires_short_window_less_than_long_window(
             short_window=short_window,
             long_window=long_window,
         )
+
+
+def test_rsi_uses_wilder_smoothing() -> None:
+    df = make_price_df([10, 11, 10, 12, 11, 13])
+
+    result = TechnicalIndicators.rsi(df, window=3)
+
+    assert result.iloc[:3].isna().all()
+    assert result.iloc[3:].tolist() == pytest.approx(
+        [75.0, 54.5454545, 75.0]
+    )
