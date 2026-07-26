@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, Generic, TypeVar
 from pydantic import BaseModel
 import logging
 import time
@@ -9,14 +9,17 @@ from observability.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
+ToolInput = TypeVar("ToolInput", bound=BaseModel)
+ToolOutput = TypeVar("ToolOutput", bound=BaseModel)
+
 class RegisteredTool:
     def __init__(
         self,
         name: str,
         description: str,
-        input_model: type[BaseModel],
-        output_model: type[BaseModel],
-        func: Callable[[BaseModel], BaseModel],
+        input_model: type[ToolInput],
+        output_model: type[ToolOutput],
+        func: Callable[[ToolInput], ToolOutput],
     ):
         self.name = name
         self.description = description
@@ -60,6 +63,7 @@ class ToolRegistry:
             "get_current_price",
             "get_historical_volatility",
             "get_options_chain",
+            "analyze_technical_indicators"
         }
 
         try:
@@ -134,9 +138,9 @@ class ToolRegistry:
                 success=False,
                 cache_hit=False,
             )
-            
+
             raise
-            
+
 
     def describe_tools(self) -> str:
         return "\n\n".join(tool.describe() for tool in self._tools.values())
