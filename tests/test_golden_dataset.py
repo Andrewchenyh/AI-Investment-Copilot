@@ -134,3 +134,35 @@ def test_schema_error_reports_correct_jsonl_line(tmp_path: Path) -> None:
         match=r"Invalid golden query schema on line 2",
     ):
         load_golden_queries(golden_path)
+
+
+def test_loads_required_tool_call_expectations(tmp_path: Path) -> None:
+    record = {
+        "id": "required_call_test",
+        "category": "technical_analysis",
+        "query": "Analyze AAPL.",
+        "expected_tools": ["analyze_technical_indicators"],
+        "required_tool_calls": [
+            {
+                "tool_name": "analyze_technical_indicators",
+                "args_subset": {"ticker": "AAPL"},
+            }
+        ],
+        "notes": "Tests trace-aware tool requirements.",
+    }
+
+    golden_path = tmp_path / "required_calls.jsonl"
+    golden_path.write_text(
+        json.dumps(record) + "\n",
+        encoding="utf-8",
+    )
+
+    loaded_record = load_golden_queries(golden_path)[0]
+    requirement = loaded_record["required_tool_calls"][0]
+
+    assert requirement == {
+        "tool_name": "analyze_technical_indicators",
+        "args_subset": {"ticker": "AAPL"},
+        "outcome": "success",
+        "min_calls": 1,
+    }
