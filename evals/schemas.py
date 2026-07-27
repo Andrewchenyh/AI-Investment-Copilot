@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -9,6 +9,24 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+
+class ToolCallExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str = Field(..., min_length=1)
+    args_subset: dict[str, Any] = Field(default_factory=dict)
+    outcome: Literal["success", "failure", "any"] = "success"
+    min_calls: int = Field(default=1, ge=1)
+
+    @field_validator("tool_name")
+    @classmethod
+    def validate_tool_name(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError(
+                "tool_name must not have surrounding whitespace"
+            )
+        return value
 
 
 class GoldenQuery(BaseModel):
@@ -25,6 +43,9 @@ class GoldenQuery(BaseModel):
 
     expected_tools: list[str] = Field(..., min_length=1)
     optional_tools: list[str] = Field(default_factory=list)
+    required_tool_calls: list[ToolCallExpectation] = Field(
+        default_factory=list
+    )
 
     must_preserve: list[str] = Field(default_factory=list)
     must_mention: list[str] = Field(default_factory=list)
@@ -61,7 +82,12 @@ class GoldenQuery(BaseModel):
 
     @model_validator(mode="after")
     def ensure_tool_roles_do_not_overlap(self) -> GoldenQuery:
-        overlap = set(self.expected_tools) & set(self.optional_tools)
+        required_tool_names = {
+            expectation.tool_name
+            for expectation in self.required_tool_calls
+        }
+        required_names = set(self.expected_tools) | required_tool_names
+        overlap = required_names & set(self.optional_tools)
 
         if overlap:
             overlapping_names = ", ".join(sorted(overlap))
