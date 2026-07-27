@@ -16,6 +16,42 @@ from evals.store_results import save_eval_run
 DEFAULT_OUTPUT_PATH = Path("evals/results/latest_golden_eval.json")
 
 
+def _argument_values_match(actual: Any, expected: Any) -> bool:
+    if isinstance(actual, str) and isinstance(expected, str):
+        return actual.casefold() == expected.casefold()
+
+    return actual == expected
+
+
+def _tool_call_matches(
+    trace_item: dict[str, Any],
+    expectation: dict[str, Any],
+) -> bool:
+    if trace_item.get("tool_name") != expectation["tool_name"]:
+        return False
+
+    outcome = expectation.get("outcome", "success")
+    success = trace_item.get("success")
+
+    if outcome == "success" and success is not True:
+        return False
+
+    if outcome == "failure" and success is not False:
+        return False
+
+    expected_args = expectation.get("args_subset", {})
+    actual_args = trace_item.get("tool_args")
+
+    if expected_args and not isinstance(actual_args, dict):
+        return False
+
+    return all(
+        key in actual_args
+        and _argument_values_match(actual_args[key], expected_value)
+        for key, expected_value in expected_args.items()
+    )
+
+
 def extract_tools_used(trace: list[dict[str, Any]]) -> list[str]:
     tools: list[str] = []
 
@@ -25,6 +61,23 @@ def extract_tools_used(trace: list[dict[str, Any]]) -> list[str]:
             tools.append(tool_name)
 
     return tools
+
+
+def contains_required_tool_calls(
+    trace: list[dict[str, Any]],
+    requirements: list[dict[str, Any]],
+) -> bool:
+    for requirement in requirements:
+        matching_calls = sum(
+            1
+            for trace_item in trace
+            if _tool_call_matches(trace_item, requirement)
+        )
+
+        if matching_calls < requirement.get("min_calls", 1):
+            return False
+
+    return True
 
 
 def contains_all_expected_tools(
@@ -58,8 +111,13 @@ def evaluate_record(
     must_preserve = record.get("must_preserve", [])
     must_mention = record.get("must_mention", [])
     forbidden = record.get("forbidden", [])
+    required_tool_calls = record.get("required_tool_calls", [])
 
     tool_usage_pass = contains_all_expected_tools(tools_used, expected_tools)
+    required_tool_calls_pass = contains_required_tool_calls(
+        trace,
+        required_tool_calls,
+    )
     preserve_pass = contains_required_mentions(answer, must_preserve)
     mention_pass = contains_required_mentions(answer, must_mention)
     forbidden_pass = avoids_forbidden_terms(answer, forbidden)
@@ -67,14 +125,15 @@ def evaluate_record(
 
     passed = all(
         [
+            status_pass,
             tool_usage_pass,
+            required_tool_calls_pass,
             preserve_pass,
             mention_pass,
             forbidden_pass,
-            status_pass,
         ]
     )
-    
+
     judge_score = None
     if judge is not None and answer:
         judge_score = judge.score(
@@ -92,12 +151,14 @@ def evaluate_record(
         "checks": {
             "status_pass": status_pass,
             "tool_usage_pass": tool_usage_pass,
+            "required_tool_calls_pass": required_tool_calls_pass,
             "preserve_pass": preserve_pass,
             "mention_pass": mention_pass,
             "forbidden_pass": forbidden_pass,
         },
         "expected_tools": expected_tools,
         "tools_used": tools_used,
+        "required_tool_calls": required_tool_calls,
         "answer": answer,
         "trace": trace,
         "judge_score": judge_score,
@@ -121,7 +182,7 @@ def run_eval(
     output_path: Path,
     use_judge: bool = False,
 ) -> dict[str, Any]:
-    
+
     judge = GeminiJudge() if use_judge else None
     records = load_golden_queries()
     if limit is not None:
@@ -133,7 +194,7 @@ def run_eval(
     results = [
         evaluate_record(record, agent, judge=judge)
         for record in records
-    ]    
+    ]
     summary = summarize_results(results)
 
     payload = {
