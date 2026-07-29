@@ -263,3 +263,47 @@ def test_answer_concepts_accept_alternatives_and_report_missing() -> None:
         "and expires next Friday.",
         concepts,
     ) == []
+
+
+def test_evaluate_record_applies_answer_concepts() -> None:
+    class FakeAgent:
+        def ask(self, user_query: str, trace_id: str) -> dict:
+            return {
+                "status": "success",
+                "answer": "AAPL RSI is currently neutral.",
+                "trace": [
+                    {
+                        "tool_name": "analyze_technical_indicators",
+                        "tool_args": {"ticker": "AAPL"},
+                        "success": True,
+                    },
+                ],
+            }
+
+    record = {
+        "id": "answer_concept_test",
+        "category": "technical_analysis",
+        "query": "Analyze AAPL.",
+        "expected_tools": ["analyze_technical_indicators"],
+        "required_tool_calls": [],
+        "required_answer_concepts": [
+            {
+                "name": "rsi",
+                "alternatives": ["RSI"],
+            },
+            {
+                "name": "moving_average",
+                "alternatives": ["50-day", "SMA-50"],
+            },
+        ],
+        "must_preserve": [],
+        "must_mention": [],
+        "forbidden": [],
+    }
+
+    result = evaluate_record(record, FakeAgent())
+
+    assert result["checks"]["tool_usage_pass"] is True
+    assert result["checks"]["answer_concepts_pass"] is False
+    assert result["missing_answer_concepts"] == ["moving_average"]
+    assert result["passed"] is False
