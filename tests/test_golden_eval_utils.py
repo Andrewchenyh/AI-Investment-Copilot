@@ -26,12 +26,20 @@ def test_contains_all_expected_tools() -> None:
         ["get_current_price", "get_options_chain"],
         ["get_current_price"],
     )
+    assert not contains_all_expected_tools(
+        ["get_current_price"],
+        ["get_current_price", "get_options_chain"],
+    )
 
 
 def test_contains_required_mentions_is_case_insensitive() -> None:
     assert contains_required_mentions(
         "The ORCL strike is 170.",
         ["orcl", "170"],
+    )
+    assert not contains_required_mentions(
+        "The ORCL strike is 170.",
+        ["orcl", "expiration"],
     )
 
 
@@ -74,12 +82,22 @@ def test_required_tool_calls_match_arguments_and_success() -> None:
 
 
 def test_required_tool_calls_reject_wrong_args_or_outcome() -> None:
-    failed_trace = [
+    wrong_args_trace = [
         {
             "tool_name": "get_options_chain",
             "tool_args": {
                 "ticker": "ORCL",
                 "target_strike": 175,
+            },
+            "success": True,
+        }
+    ]
+    wrong_outcome_trace = [
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {
+                "ticker": "ORCL",
+                "target_strike": 170,
             },
             "success": False,
         }
@@ -97,7 +115,11 @@ def test_required_tool_calls_reject_wrong_args_or_outcome() -> None:
     ]
 
     assert not contains_required_tool_calls(
-        failed_trace,
+        wrong_args_trace,
+        requirements,
+    )
+    assert not contains_required_tool_calls(
+        wrong_outcome_trace,
         requirements,
     )
 
@@ -120,6 +142,13 @@ def test_required_tool_calls_support_expected_failures() -> None:
     ]
 
     assert contains_required_tool_calls(trace, requirements)
+    any_outcome_requirements = [
+        {
+            **requirements[0],
+            "outcome": "any",
+        }
+    ]
+    assert contains_required_tool_calls(trace, any_outcome_requirements)
 
 
 def test_required_tool_calls_require_each_expected_ticker() -> None:
@@ -152,11 +181,21 @@ def test_required_tool_calls_require_each_expected_ticker() -> None:
     )
 
     assert contains_required_tool_calls(trace, requirements)
+    assert contains_required_tool_calls(
+        trace,
+        [
+            {
+                "tool_name": "get_options_chain",
+                "outcome": "success",
+                "min_calls": 2,
+            }
+        ],
+    )
 
 
 def test_evaluate_record_applies_required_tool_calls() -> None:
     class FakeAgent:
-        def ask(self, query: str, trace_id: str) -> dict:
+        def ask(self, user_query: str, trace_id: str) -> dict:
             return {
                 "status": "success",
                 "answer": "ORCL analysis completed.",
