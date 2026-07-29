@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from evals.load_golden import load_golden_queries
 from tools.setup_registry import build_tool_registry
 
@@ -136,7 +137,9 @@ def test_schema_error_reports_correct_jsonl_line(tmp_path: Path) -> None:
         load_golden_queries(golden_path)
 
 
-def test_loads_required_tool_call_expectations(tmp_path: Path) -> None:
+def test_loads_structured_expectations(
+    tmp_path: Path,
+) -> None:
     record = {
         "id": "required_call_test",
         "category": "technical_analysis",
@@ -146,6 +149,12 @@ def test_loads_required_tool_call_expectations(tmp_path: Path) -> None:
             {
                 "tool_name": "analyze_technical_indicators",
                 "args_subset": {"ticker": "AAPL"},
+            }
+        ],
+        "required_answer_concepts": [
+            {
+                "name": "moving_average",
+                "alternatives": ["50-day", "SMA-50"],
             }
         ],
         "notes": "Tests trace-aware tool requirements.",
@@ -166,3 +175,9 @@ def test_loads_required_tool_call_expectations(tmp_path: Path) -> None:
         "outcome": "success",
         "min_calls": 1,
     }
+    assert loaded_record["required_answer_concepts"] == [
+        {
+            "name": "moving_average",
+            "alternatives": ["50-day", "SMA-50"],
+        }
+    ]
