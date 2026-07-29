@@ -3,17 +3,21 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from agents.react_agent import ReActAgent
-from evals.load_golden import load_golden_queries
-from tools.setup_registry import build_tool_registry
 from evals.judge import GeminiJudge
+from evals.load_golden import load_golden_queries
 from evals.store_results import save_eval_run
+from tools.setup_registry import build_tool_registry
 
 
 DEFAULT_OUTPUT_PATH = Path("evals/results/latest_golden_eval.json")
+
+
+class EvaluationAgent(Protocol):
+    def ask(self, user_query: str, trace_id: str) -> dict[str, Any]: ...
 
 
 def _argument_values_match(actual: Any, expected: Any) -> bool:
@@ -99,7 +103,7 @@ def avoids_forbidden_terms(answer: str, forbidden_terms: list[str]) -> bool:
 
 def evaluate_record(
     record: dict[str, Any],
-    agent: ReActAgent,
+    agent: EvaluationAgent,
     judge: GeminiJudge | None = None,
 ) -> dict[str, Any]:
     result = agent.ask(record["query"], trace_id=str(uuid4()))
