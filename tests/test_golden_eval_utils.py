@@ -5,6 +5,7 @@ from evals.run_golden_eval import (
     extract_tools_used,
     contains_required_tool_calls,
     evaluate_record,
+    find_missing_answer_concepts,
 )
 
 
@@ -231,3 +232,34 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
     assert result["checks"]["tool_usage_pass"] is True
     assert result["checks"]["required_tool_calls_pass"] is False
     assert result["passed"] is False
+
+
+def test_answer_concepts_accept_alternatives_and_report_missing() -> None:
+    concepts = [
+        {
+            "name": "premium",
+            "alternatives": [
+                "premium",
+                "credit received",
+            ],
+        },
+        {
+            "name": "expiration",
+            "alternatives": [
+                "expiration",
+                "expires",
+                "expiring",
+            ],
+        },
+    ]
+
+    assert find_missing_answer_concepts(
+        "The trade provides a credit received of $1.78.",
+        concepts,
+    ) == ["expiration"]
+
+    assert find_missing_answer_concepts(
+        "The trade provides a $1.78 credit received "
+        "and expires next Friday.",
+        concepts,
+    ) == []
