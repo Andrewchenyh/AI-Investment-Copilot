@@ -84,6 +84,22 @@ def test_all_golden_tool_references_are_registered() -> None:
             },
             id="overlapping-tool-roles",
         ),
+        pytest.param(
+            {
+                "id": "empty_concept_alternatives",
+                "category": "technical_analysis",
+                "query": "Analyze AAPL.",
+                "expected_tools": ["analyze_technical_indicators"],
+                "required_answer_concepts": [
+                    {
+                        "name": "rsi",
+                        "alternatives": [],
+                    }
+                ],
+                "notes": "Concept alternatives cannot be empty.",
+            },
+            id="empty-concept-alternatives",
+        ),
     ],
 )
 def test_load_golden_queries_rejects_invalid_schema(
