@@ -101,6 +101,26 @@ def avoids_forbidden_terms(answer: str, forbidden_terms: list[str]) -> bool:
     return all(term.lower() not in answer_lower for term in forbidden_terms)
 
 
+def find_missing_answer_concepts(
+    answer: str,
+    concepts: list[dict[str, Any]],
+) -> list[str]:
+    normalized_answer = answer.casefold()
+    missing_concepts: list[str] = []
+
+    for concept in concepts:
+        alternatives = concept["alternatives"]
+        concept_found = any(
+            alternative.casefold() in normalized_answer
+            for alternative in alternatives
+        )
+
+        if not concept_found:
+            missing_concepts.append(concept["name"])
+
+    return missing_concepts
+
+
 def evaluate_record(
     record: dict[str, Any],
     agent: EvaluationAgent,
@@ -122,8 +142,18 @@ def evaluate_record(
         trace,
         required_tool_calls,
     )
+    required_answer_concepts = record.get(
+        "required_answer_concepts",
+        [],
+    )
+    
     preserve_pass = contains_required_mentions(answer, must_preserve)
     mention_pass = contains_required_mentions(answer, must_mention)
+    missing_answer_concepts = find_missing_answer_concepts(
+        answer,
+        required_answer_concepts,
+    )
+    answer_concepts_pass = not missing_answer_concepts
     forbidden_pass = avoids_forbidden_terms(answer, forbidden)
     status_pass = result.get("status") == "success"
 
@@ -134,6 +164,7 @@ def evaluate_record(
             required_tool_calls_pass,
             preserve_pass,
             mention_pass,
+            answer_concepts_pass,
             forbidden_pass,
         ]
     )
@@ -158,12 +189,15 @@ def evaluate_record(
             "required_tool_calls_pass": required_tool_calls_pass,
             "preserve_pass": preserve_pass,
             "mention_pass": mention_pass,
+            "answer_concepts_pass": answer_concepts_pass,
             "forbidden_pass": forbidden_pass,
         },
         "expected_tools": expected_tools,
         "tools_used": tools_used,
         "required_tool_calls": required_tool_calls,
         "answer": answer,
+        "required_answer_concepts": required_answer_concepts,
+        "missing_answer_concepts": missing_answer_concepts,
         "trace": trace,
         "judge_score": judge_score,
     }
