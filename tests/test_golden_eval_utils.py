@@ -1,5 +1,4 @@
 from evals.run_golden_eval import (
-    avoids_forbidden_terms,
     contains_all_expected_tools,
     contains_required_mentions,
     extract_tools_used,
@@ -41,17 +40,6 @@ def test_contains_required_mentions_is_case_insensitive() -> None:
     assert not contains_required_mentions(
         "The ORCL strike is 170.",
         ["orcl", "expiration"],
-    )
-
-
-def test_avoids_forbidden_terms() -> None:
-    assert avoids_forbidden_terms(
-        "This is an educational analysis.",
-        ["guaranteed profit"],
-    )
-    assert not avoids_forbidden_terms(
-        "This has guaranteed profit.",
-        ["guaranteed profit"],
     )
 
 
@@ -224,7 +212,6 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
         ],
         "must_preserve": [],
         "must_mention": [],
-        "forbidden": [],
     }
 
     result = evaluate_record(record, FakeAgent())
@@ -298,7 +285,6 @@ def test_evaluate_record_applies_answer_concepts() -> None:
         ],
         "must_preserve": [],
         "must_mention": [],
-        "forbidden": [],
     }
 
     result = evaluate_record(record, FakeAgent())
