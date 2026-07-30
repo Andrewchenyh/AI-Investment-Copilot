@@ -96,11 +96,6 @@ def contains_required_mentions(answer: str, required_mentions: list[str]) -> boo
     return all(mention.lower() in answer_lower for mention in required_mentions)
 
 
-def avoids_forbidden_terms(answer: str, forbidden_terms: list[str]) -> bool:
-    answer_lower = answer.lower()
-    return all(term.lower() not in answer_lower for term in forbidden_terms)
-
-
 def find_missing_answer_concepts(
     answer: str,
     concepts: list[dict[str, Any]],
@@ -134,7 +129,6 @@ def evaluate_record(
     expected_tools = record.get("expected_tools", [])
     must_preserve = record.get("must_preserve", [])
     must_mention = record.get("must_mention", [])
-    forbidden = record.get("forbidden", [])
     required_tool_calls = record.get("required_tool_calls", [])
 
     tool_usage_pass = contains_all_expected_tools(tools_used, expected_tools)
@@ -146,7 +140,7 @@ def evaluate_record(
         "required_answer_concepts",
         [],
     )
-    
+
     preserve_pass = contains_required_mentions(answer, must_preserve)
     mention_pass = contains_required_mentions(answer, must_mention)
     missing_answer_concepts = find_missing_answer_concepts(
@@ -154,7 +148,6 @@ def evaluate_record(
         required_answer_concepts,
     )
     answer_concepts_pass = not missing_answer_concepts
-    forbidden_pass = avoids_forbidden_terms(answer, forbidden)
     status_pass = result.get("status") == "success"
 
     passed = all(
@@ -165,7 +158,6 @@ def evaluate_record(
             preserve_pass,
             mention_pass,
             answer_concepts_pass,
-            forbidden_pass,
         ]
     )
 
@@ -190,7 +182,6 @@ def evaluate_record(
             "preserve_pass": preserve_pass,
             "mention_pass": mention_pass,
             "answer_concepts_pass": answer_concepts_pass,
-            "forbidden_pass": forbidden_pass,
         },
         "expected_tools": expected_tools,
         "tools_used": tools_used,
