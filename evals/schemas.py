@@ -87,7 +87,6 @@ class GoldenQuery(BaseModel):
 
     must_preserve: list[str] = Field(default_factory=list)
     must_mention: list[str] = Field(default_factory=list)
-    forbidden: list[str] = Field(default_factory=list)
 
     notes: str = Field(..., min_length=1)
 
@@ -111,7 +110,7 @@ class GoldenQuery(BaseModel):
 
         return values
 
-    @field_validator("must_preserve", "must_mention", "forbidden")
+    @field_validator("must_preserve", "must_mention")
     @classmethod
     def reject_blank_requirements(cls, values: list[str]) -> list[str]:
         if any(not value.strip() for value in values):
@@ -135,7 +134,7 @@ class GoldenQuery(BaseModel):
             )
 
         return self
-    
+
     @model_validator(mode="after")
     def ensure_concept_names_are_unique(self) -> GoldenQuery:
         normalized_names = [
