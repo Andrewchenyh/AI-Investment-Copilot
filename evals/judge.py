@@ -38,7 +38,7 @@ class JudgeScore(BaseModel):
         ...,
         description="Brief explanation of the score.",
     )
-    
+
 
 def build_judge_prompt(
     query: str,
@@ -74,8 +74,8 @@ def build_judge_prompt(
 
                 Return concise JSON matching the requested schema.
             """
-            
-            
+
+
 class GeminiJudge:
     def __init__(self, model_id: str = "gemini-3.1-flash-lite"):
         load_dotenv()
