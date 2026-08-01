@@ -1,5 +1,4 @@
 from evals.run_golden_eval import (
-    contains_all_expected_tools,
     contains_required_mentions,
     extract_tools_used,
     contains_required_tool_calls,
@@ -19,17 +18,6 @@ def test_extract_tools_used() -> None:
         "get_current_price",
         "get_options_chain",
     ]
-
-
-def test_contains_all_expected_tools() -> None:
-    assert contains_all_expected_tools(
-        ["get_current_price", "get_options_chain"],
-        ["get_current_price"],
-    )
-    assert not contains_all_expected_tools(
-        ["get_current_price"],
-        ["get_current_price", "get_options_chain"],
-    )
 
 
 def test_contains_required_mentions_is_case_insensitive() -> None:
@@ -201,7 +189,6 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
         "id": "trace_contract_test",
         "category": "test",
         "query": "Analyze ORCL.",
-        "expected_tools": ["get_options_chain"],
         "required_tool_calls": [
             {
                 "tool_name": "get_options_chain",
@@ -211,12 +198,10 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
             }
         ],
         "must_preserve": [],
-        "must_mention": [],
     }
 
     result = evaluate_record(record, FakeAgent())
 
-    assert result["checks"]["tool_usage_pass"] is True
     assert result["checks"]["required_tool_calls_pass"] is False
     assert result["passed"] is False
 
@@ -271,7 +256,6 @@ def test_evaluate_record_applies_answer_concepts() -> None:
         "id": "answer_concept_test",
         "category": "technical_analysis",
         "query": "Analyze AAPL.",
-        "expected_tools": ["analyze_technical_indicators"],
         "required_tool_calls": [],
         "required_answer_concepts": [
             {
@@ -284,12 +268,10 @@ def test_evaluate_record_applies_answer_concepts() -> None:
             },
         ],
         "must_preserve": [],
-        "must_mention": [],
     }
 
     result = evaluate_record(record, FakeAgent())
 
-    assert result["checks"]["tool_usage_pass"] is True
     assert result["checks"]["answer_concepts_pass"] is False
     assert result["missing_answer_concepts"] == ["moving_average"]
     assert result["passed"] is False
