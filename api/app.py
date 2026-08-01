@@ -1,4 +1,5 @@
 import logging
+from starlette.concurrency import run_in_threadpool
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -120,7 +121,10 @@ async def get_history(
     session_id: str,
     _: str = Depends(require_api_key),
 ) -> HistoryResponse:
-    items = get_history_items(session_id)
+    items = await run_in_threadpool(
+        get_history_items,
+        session_id,
+    )
     return HistoryResponse(session_id=session_id, items=items) # type: ignore
 
 
