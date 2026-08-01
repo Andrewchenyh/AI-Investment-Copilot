@@ -73,19 +73,17 @@ class GoldenQuery(BaseModel):
         pattern=r"^[a-z0-9_]+$",
     )
     category: str = Field(..., min_length=1)
-    tier: Literal["core", "stress"] = "core"
     query: str = Field(..., min_length=1)
 
-    expected_tools: list[str] = Field(..., min_length=1)
-    optional_tools: list[str] = Field(default_factory=list)
     required_tool_calls: list[ToolCallExpectation] = Field(
-        default_factory=list
+        ...,
+        min_length=1,
     )
     required_answer_concepts: list[AnswerConceptExpectation] = Field(
-        default_factory=list
+        ...,
+        min_length=1,
     )
-
-    must_preserve: list[str] = Field(default_factory=list)
+    required_answer_literals: list[str] = Field(default_factory=list)
 
     notes: str = Field(..., min_length=1)
 
@@ -96,43 +94,21 @@ class GoldenQuery(BaseModel):
             raise ValueError("value must not be blank")
         return value
 
-    @field_validator("expected_tools", "optional_tools")
+    @field_validator("required_answer_literals")
     @classmethod
-    def validate_tool_names(cls, values: list[str]) -> list[str]:
+    def validate_answer_literals(cls, values: list[str]) -> list[str]:
         if any(not value or value != value.strip() for value in values):
             raise ValueError(
-                "tool names must be nonblank and have no surrounding whitespace"
+                "required answer literals must be nonblank and trimmed"
             )
 
-        if len(values) != len(set(values)):
-            raise ValueError("tool names must not contain duplicates")
-
-        return values
-
-    @field_validator("must_preserve")
-    @classmethod
-    def reject_blank_requirements(cls, values: list[str]) -> list[str]:
-        if any(not value.strip() for value in values):
-            raise ValueError("evaluation requirements must not be blank")
-        return values
-
-    @model_validator(mode="after")
-    def ensure_tool_roles_do_not_overlap(self) -> GoldenQuery:
-        required_tool_names = {
-            expectation.tool_name
-            for expectation in self.required_tool_calls
-        }
-        required_names = set(self.expected_tools) | required_tool_names
-        overlap = required_names & set(self.optional_tools)
-
-        if overlap:
-            overlapping_names = ", ".join(sorted(overlap))
+        normalized_values = [value.casefold() for value in values]
+        if len(normalized_values) != len(set(normalized_values)):
             raise ValueError(
-                "tools cannot be both expected and optional: "
-                f"{overlapping_names}"
+                "required answer literals must not contain duplicates"
             )
 
-        return self
+        return values
 
     @model_validator(mode="after")
     def ensure_concept_names_are_unique(self) -> GoldenQuery:
