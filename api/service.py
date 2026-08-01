@@ -2,6 +2,7 @@ import json
 from uuid import uuid4
 import logging
 import time
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from api.schemas import AnalyzeResponse, CompareResponse
 from agents.react_agent import ReActAgent
 from tools.setup_registry import build_tool_registry
@@ -19,7 +20,11 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
     start = time.perf_counter()
     log_event(logger, "analysis_request_started", trace_id=trace_id, query=query)
 
-    result = agent.ask(query, trace_id=trace_id)
+    result = await run_in_threadpool(
+        agent.ask,
+        query,
+        trace_id=trace_id,
+    )
 
     latency_ms = (time.perf_counter() - start) * 1000
     metrics.record_request_latency(latency_ms)
@@ -33,7 +38,8 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
     )
 
     if session_id:
-        save_history_item(
+        await run_in_threadpool(
+            save_history_item,
             session_id=session_id,
             item={
                 "query": query,
@@ -44,6 +50,7 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
                 "trace": result["trace"],
             },
         )
+
 
     return AnalyzeResponse(
         status=result["status"],
@@ -65,12 +72,15 @@ async def stream_analysis(query: str, session_id: str | None = None):
     )
 
     try:
-        for event in agent.run_with_events(query, trace_id=trace_id):
+        async for event in iterate_in_threadpool(
+            agent.run_with_events(query, trace_id=trace_id)
+        ):
             event["data"]["trace_id"] = trace_id
 
             if session_id and event["event"] in {"final_answer", "error"}:
                 result = event["data"]
-                save_history_item(
+                await run_in_threadpool(
+                    save_history_item,
                     session_id=session_id,
                     item={
                         "query": query,
@@ -138,7 +148,11 @@ async def run_comparison(
     start = time.perf_counter()
     log_event(logger, "comparison_request_started", trace_id=trace_id, query=comparison_query)
 
-    result = agent.ask(comparison_query, trace_id=trace_id)
+    result = await run_in_threadpool(
+        agent.ask,
+        comparison_query,
+        trace_id=trace_id,
+    )
 
     latency_ms = (time.perf_counter() - start) * 1000
     metrics.record_request_latency(latency_ms)
@@ -152,7 +166,8 @@ async def run_comparison(
     )
 
     if session_id:
-        save_history_item(
+        await run_in_threadpool(
+            save_history_item,
             session_id=session_id,
             item={
                 "query": comparison_query,
@@ -191,12 +206,15 @@ async def stream_comparison(
     )
 
     try:
-        for event in agent.run_with_events(comparison_query, trace_id=trace_id):
+        async for event in iterate_in_threadpool(
+            agent.run_with_events(comparison_query, trace_id=trace_id)
+        ):
             event["data"]["trace_id"] = trace_id
 
             if session_id and event["event"] in {"final_answer", "error"}:
                 result = event["data"]
-                save_history_item(
+                await run_in_threadpool(
+                    save_history_item,
                     session_id=session_id,
                     item={
                         "query": comparison_query,
