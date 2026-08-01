@@ -86,7 +86,6 @@ class GoldenQuery(BaseModel):
     )
 
     must_preserve: list[str] = Field(default_factory=list)
-    must_mention: list[str] = Field(default_factory=list)
 
     notes: str = Field(..., min_length=1)
 
@@ -110,7 +109,7 @@ class GoldenQuery(BaseModel):
 
         return values
 
-    @field_validator("must_preserve", "must_mention")
+    @field_validator("must_preserve")
     @classmethod
     def reject_blank_requirements(cls, values: list[str]) -> list[str]:
         if any(not value.strip() for value in values):
