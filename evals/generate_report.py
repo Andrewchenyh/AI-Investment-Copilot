@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -49,6 +50,21 @@ def get_failed_checks(result: dict[str, Any]) -> list[str]:
     ]
 
 
+def format_unsatisfied_tool_call(requirement: dict[str, Any]) -> str:
+    args_subset = json.dumps(
+        requirement.get("args_subset", {}),
+        sort_keys=True,
+    )
+    matched_calls = requirement.get("matched_calls", 0)
+    min_calls = requirement.get("min_calls", 1)
+    outcome = requirement.get("outcome", "success")
+
+    return (
+        f"{requirement['tool_name']}(args_subset={args_subset}, "
+        f"outcome={outcome}, matched={matched_calls}/{min_calls})"
+    )
+
+
 def build_report(run_id: int, payload: dict[str, Any]) -> str:
     summary = payload["summary"]
     results = payload["results"]
@@ -94,9 +110,35 @@ def build_report(run_id: int, payload: dict[str, Any]) -> str:
                     f"- Query: {result['query']}",
                     f"- Failed checks: {failed_checks}",
                     f"- Tools used: {', '.join(result.get('tools_used', []))}",
-                    "",
                 ]
             )
+
+            if result.get("error"):
+                lines.append(f"- Agent error: {result['error']}")
+
+            unsatisfied_calls = result.get("unsatisfied_tool_calls", [])
+            if unsatisfied_calls:
+                formatted_calls = "; ".join(
+                    format_unsatisfied_tool_call(requirement)
+                    for requirement in unsatisfied_calls
+                )
+                lines.append(f"- Unsatisfied tool calls: {formatted_calls}")
+
+            missing_literals = result.get("missing_answer_literals", [])
+            if missing_literals:
+                lines.append(
+                    "- Missing answer literals: "
+                    f"{', '.join(missing_literals)}"
+                )
+
+            missing_concepts = result.get("missing_answer_concepts", [])
+            if missing_concepts:
+                lines.append(
+                    "- Missing answer concepts: "
+                    f"{', '.join(missing_concepts)}"
+                )
+
+            lines.append("")
     else:
         lines.append("No failed cases.")
 
@@ -112,6 +154,7 @@ def build_report(run_id: int, payload: dict[str, Any]) -> str:
         status = "PASS" if result["passed"] else "FAIL"
         judge_score = result.get("judge_score") or {}
         overall = judge_score.get("overall", "N/A")
+        judge_error = result.get("judge_error")
 
         lines.extend(
             [
@@ -121,9 +164,11 @@ def build_report(run_id: int, payload: dict[str, Any]) -> str:
                 f"- Status: {result['status']}",
                 f"- Overall judge score: {overall}",
                 f"- Tools used: {', '.join(result.get('tools_used', []))}",
-                "",
             ]
         )
+        if judge_error:
+            lines.append(f"- Judge error: {judge_error}")
+        lines.append("")
 
     return "\n".join(lines) + "\n"
 
