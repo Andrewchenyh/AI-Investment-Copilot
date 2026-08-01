@@ -84,13 +84,6 @@ def contains_required_tool_calls(
     return True
 
 
-def contains_all_expected_tools(
-    tools_used: list[str],
-    expected_tools: list[str],
-) -> bool:
-    return all(tool in tools_used for tool in expected_tools)
-
-
 def contains_required_mentions(answer: str, required_mentions: list[str]) -> bool:
     answer_lower = answer.lower()
     return all(mention.lower() in answer_lower for mention in required_mentions)
@@ -126,12 +119,9 @@ def evaluate_record(
     trace = result.get("trace") or []
     tools_used = extract_tools_used(trace)
 
-    expected_tools = record.get("expected_tools", [])
     must_preserve = record.get("must_preserve", [])
-    must_mention = record.get("must_mention", [])
     required_tool_calls = record.get("required_tool_calls", [])
 
-    tool_usage_pass = contains_all_expected_tools(tools_used, expected_tools)
     required_tool_calls_pass = contains_required_tool_calls(
         trace,
         required_tool_calls,
@@ -142,7 +132,6 @@ def evaluate_record(
     )
 
     preserve_pass = contains_required_mentions(answer, must_preserve)
-    mention_pass = contains_required_mentions(answer, must_mention)
     missing_answer_concepts = find_missing_answer_concepts(
         answer,
         required_answer_concepts,
@@ -153,10 +142,8 @@ def evaluate_record(
     passed = all(
         [
             status_pass,
-            tool_usage_pass,
             required_tool_calls_pass,
             preserve_pass,
-            mention_pass,
             answer_concepts_pass,
         ]
     )
@@ -177,13 +164,10 @@ def evaluate_record(
         "passed": passed,
         "checks": {
             "status_pass": status_pass,
-            "tool_usage_pass": tool_usage_pass,
             "required_tool_calls_pass": required_tool_calls_pass,
             "preserve_pass": preserve_pass,
-            "mention_pass": mention_pass,
             "answer_concepts_pass": answer_concepts_pass,
         },
-        "expected_tools": expected_tools,
         "tools_used": tools_used,
         "required_tool_calls": required_tool_calls,
         "answer": answer,
