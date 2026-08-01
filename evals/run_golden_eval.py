@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
@@ -67,10 +68,12 @@ def extract_tools_used(trace: list[dict[str, Any]]) -> list[str]:
     return tools
 
 
-def contains_required_tool_calls(
+def find_unsatisfied_tool_calls(
     trace: list[dict[str, Any]],
     requirements: list[dict[str, Any]],
-) -> bool:
+) -> list[dict[str, Any]]:
+    unsatisfied: list[dict[str, Any]] = []
+
     for requirement in requirements:
         matching_calls = sum(
             1
@@ -79,14 +82,30 @@ def contains_required_tool_calls(
         )
 
         if matching_calls < requirement.get("min_calls", 1):
-            return False
+            unsatisfied.append(
+                {
+                    **requirement,
+                    "matched_calls": matching_calls,
+                }
+            )
 
-    return True
+    return unsatisfied
 
 
-def contains_required_mentions(answer: str, required_mentions: list[str]) -> bool:
-    answer_lower = answer.lower()
-    return all(mention.lower() in answer_lower for mention in required_mentions)
+def find_missing_answer_literals(
+    answer: str,
+    required_literals: list[str],
+) -> list[str]:
+    return [
+        literal
+        for literal in required_literals
+        if re.search(
+            rf"(?<!\w){re.escape(literal)}(?!\w)",
+            answer,
+            flags=re.IGNORECASE,
+        )
+        is None
+    ]
 
 
 def find_missing_answer_concepts(
@@ -114,24 +133,36 @@ def evaluate_record(
     agent: EvaluationAgent,
     judge: GeminiJudge | None = None,
 ) -> dict[str, Any]:
-    result = agent.ask(record["query"], trace_id=str(uuid4()))
+    try:
+        result = agent.ask(record["query"], trace_id=str(uuid4()))
+    except Exception as exc:
+        result = {
+            "status": "error",
+            "message": f"{type(exc).__name__}: {exc}",
+            "trace": [],
+        }
+
     answer = result.get("answer") or ""
     trace = result.get("trace") or []
     tools_used = extract_tools_used(trace)
 
-    must_preserve = record.get("must_preserve", [])
-    required_tool_calls = record.get("required_tool_calls", [])
+    required_tool_calls = record["required_tool_calls"]
+    required_answer_literals = record.get(
+        "required_answer_literals",
+        [],
+    )
+    required_answer_concepts = record["required_answer_concepts"]
 
-    required_tool_calls_pass = contains_required_tool_calls(
+    unsatisfied_tool_calls = find_unsatisfied_tool_calls(
         trace,
         required_tool_calls,
     )
-    required_answer_concepts = record.get(
-        "required_answer_concepts",
-        [],
+    required_tool_calls_pass = not unsatisfied_tool_calls
+    missing_answer_literals = find_missing_answer_literals(
+        answer,
+        required_answer_literals,
     )
-
-    preserve_pass = contains_required_mentions(answer, must_preserve)
+    answer_literals_pass = not missing_answer_literals
     missing_answer_concepts = find_missing_answer_concepts(
         answer,
         required_answer_concepts,
@@ -143,38 +174,47 @@ def evaluate_record(
         [
             status_pass,
             required_tool_calls_pass,
-            preserve_pass,
+            answer_literals_pass,
             answer_concepts_pass,
         ]
     )
 
     judge_score = None
+    judge_error = None
     if judge is not None and answer:
-        judge_score = judge.score(
-            query=record["query"],
-            answer=answer,
-            trace=trace,
-        ).model_dump()
+        try:
+            judge_score = judge.score(
+                query=record["query"],
+                answer=answer,
+                trace=trace,
+            ).model_dump()
+        except Exception as exc:
+            judge_error = f"{type(exc).__name__}: {exc}"
 
     return {
         "id": record["id"],
         "category": record["category"],
         "query": record["query"],
         "status": result.get("status"),
+        "error": result.get("message"),
         "passed": passed,
         "checks": {
             "status_pass": status_pass,
             "required_tool_calls_pass": required_tool_calls_pass,
-            "preserve_pass": preserve_pass,
+            "answer_literals_pass": answer_literals_pass,
             "answer_concepts_pass": answer_concepts_pass,
         },
         "tools_used": tools_used,
         "required_tool_calls": required_tool_calls,
+        "unsatisfied_tool_calls": unsatisfied_tool_calls,
         "answer": answer,
+        "required_answer_literals": required_answer_literals,
+        "missing_answer_literals": missing_answer_literals,
         "required_answer_concepts": required_answer_concepts,
         "missing_answer_concepts": missing_answer_concepts,
         "trace": trace,
         "judge_score": judge_score,
+        "judge_error": judge_error,
     }
 
 
