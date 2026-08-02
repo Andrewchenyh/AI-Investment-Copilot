@@ -42,7 +42,7 @@ def get_current_price_tool(args: CurrentPriceInput) -> CurrentPriceOutput:
         currency="USD",
         source="yfinance",
     )
-    
+
 class HistoricalVolatilityInput(BaseModel):
     ticker: str = Field(
         ...,
