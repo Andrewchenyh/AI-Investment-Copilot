@@ -65,7 +65,7 @@ class MarketDataEngine:
         Retrieve historical price data.
         """
 
-        
+
         stock = yf.Ticker(ticker)
         df = stock.history(
             period=period,
@@ -76,10 +76,10 @@ class MarketDataEngine:
 
         df = df.reset_index()
         df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
-        
+
         if df["Close"].isnull().any():
-            df["Close"] = df["Close"].ffill() 
-            
+            df["Close"] = df["Close"].ffill()
+
         return df
 
 
@@ -117,10 +117,10 @@ class MarketDataEngine:
         """
 
         df = df.copy()
-        
+
         if df.empty:
             return pd.DataFrame()
-        
+
         df["return"] = df["Close"].pct_change()
 
         return df
@@ -188,4 +188,4 @@ if __name__ == "__main__":
 
     print("\nPrice Data Preview:")
     print(data["price_data"].tail(10))
-    
+
