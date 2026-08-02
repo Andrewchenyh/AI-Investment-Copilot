@@ -16,6 +16,7 @@ from api.schemas import (
     HistoryResponse,
 )
 from api.service import (
+    ServiceExecutionError,
     run_analysis,
     run_comparison,
     stream_analysis,
@@ -46,6 +47,12 @@ async def analyze_json(
 ) -> AnalyzeResponse:
     try:
         return await run_analysis(request.query, session_id=request.session_id)
+    except ServiceExecutionError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+            headers={"X-Trace-ID": exc.trace_id},
+        ) from exc
     except Exception as exc:
         logger.exception("Analysis request failed")
         raise HTTPException(
@@ -71,7 +78,7 @@ async def analyze_stream(
             status_code=500,
             detail="Analysis stream could not be started.",
         ) from exc
-    
+
 
 @app.post("/compare", response_model=CompareResponse)
 async def compare_json(
@@ -85,6 +92,12 @@ async def compare_json(
             question=request.question,
             session_id=request.session_id,
         )
+    except ServiceExecutionError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc),
+            headers={"X-Trace-ID": exc.trace_id},
+        ) from exc
     except Exception as exc:
         logger.exception("Comparison request failed")
         raise HTTPException(
@@ -114,7 +127,7 @@ async def compare_stream(
             status_code=500,
             detail="Comparison stream could not be started.",
         ) from exc
-    
+
 
 @app.get("/history/{session_id}", response_model=HistoryResponse)
 async def get_history(
