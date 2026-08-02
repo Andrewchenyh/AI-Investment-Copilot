@@ -1,11 +1,12 @@
-from typing import Any, Callable, Generic, TypeVar
-from pydantic import BaseModel
 import logging
 import time
+from typing import Any, Callable, Generic, TypeVar
+
+from pydantic import BaseModel
 
 from observability.logging import log_event, summarize_payload
-from tools.cache import get_cached_tool_result, set_cached_tool_result
 from observability.metrics import metrics
+from tools.cache import get_cached_tool_result, set_cached_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +70,25 @@ class ToolRegistry:
             "get_current_price",
             "get_historical_volatility",
             "get_options_chain",
-            "analyze_technical_indicators"
+            "analyze_technical_indicators",
         }
 
         try:
             if tool_name in cacheable_tools:
-                cached_result = get_cached_tool_result(tool_name, tool_args)
+                try:
+                    cached_result = get_cached_tool_result(tool_name, tool_args)
+                except Exception as exc:
+                    cached_result = None
+                    log_event(
+                        logger,
+                        "tool_cache_read_failed",
+                        trace_id=trace_id,
+                        tool_name=tool_name,
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                        input_summary=summarize_payload(tool_args),
+                    )
+
                 if cached_result is not None:
                     latency_ms = (time.perf_counter() - start) * 1000
                     log_event(
@@ -104,7 +118,23 @@ class ToolRegistry:
             result_dict = result.model_dump()
 
             if tool_name in cacheable_tools:
-                set_cached_tool_result(tool_name, tool_args, result_dict, ttl_seconds=300)
+                try:
+                    set_cached_tool_result(
+                        tool_name,
+                        tool_args,
+                        result_dict,
+                        ttl_seconds=300,
+                    )
+                except Exception as exc:
+                    log_event(
+                        logger,
+                        "tool_cache_write_failed",
+                        trace_id=trace_id,
+                        tool_name=tool_name,
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                        input_summary=summarize_payload(tool_args),
+                    )
 
             latency_ms = (time.perf_counter() - start) * 1000
             log_event(
