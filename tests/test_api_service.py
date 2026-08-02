@@ -1,12 +1,24 @@
 import asyncio
 import threading
 from typing import Any
+import asyncio
+import json
+import threading
 
 import api.service as service
 
 
 async def collect_stream(stream) -> list[str]:
     return [message async for message in stream]
+
+
+def parse_sse_data(message: str) -> dict[str, Any]:
+    data_line = next(
+        line
+        for line in message.splitlines()
+        if line.startswith("data: ")
+    )
+    return json.loads(data_line.removeprefix("data: "))
 
 
 def test_run_analysis_executes_agent_in_threadpool(monkeypatch) -> None:
@@ -236,3 +248,191 @@ def test_stream_analysis_saves_history_in_threadpool(monkeypatch) -> None:
     assert saved["session_id"] == "session-123"
     assert saved["item"]["answer"] == "Streamed answer"
     assert messages[0].startswith("event: final_answer\n")
+
+
+def test_run_analysis_succeeds_when_history_save_fails(monkeypatch) -> None:
+    def fake_ask(query: str, trace_id: str) -> dict[str, Any]:
+        return {
+            "status": "success",
+            "answer": "Grounded answer",
+            "trace": [],
+        }
+
+    def fail_history_save(
+        session_id: str,
+        item: dict[str, Any],
+    ) -> None:
+        raise ConnectionError("Redis unavailable")
+
+    logged_events: list[dict[str, Any]] = []
+
+    def capture_log_event(
+        logger,
+        event: str,
+        trace_id: str | None = None,
+        **fields: Any,
+    ) -> None:
+        logged_events.append(
+            {
+                "event": event,
+                "trace_id": trace_id,
+                **fields,
+            }
+        )
+
+    monkeypatch.setattr(service.agent, "ask", fake_ask)
+    monkeypatch.setattr(
+        service,
+        "save_history_item",
+        fail_history_save,
+    )
+    monkeypatch.setattr(
+        service,
+        "log_event",
+        capture_log_event,
+    )
+
+    response = asyncio.run(
+        service.run_analysis(
+            "Analyze ORCL",
+            session_id="session-123",
+        )
+    )
+
+    assert response.status == "success"
+    assert response.answer == "Grounded answer"
+    history_failure = next(
+        event
+        for event in logged_events
+        if event["event"] == "history_save_failed"
+    )
+
+    assert history_failure["trace_id"] == response.trace_id
+    assert history_failure["session_id"] == "session-123"
+    assert history_failure["error_type"] == "ConnectionError"
+    assert history_failure["error_message"] == "Redis unavailable"
+
+
+def test_stream_analysis_emits_final_answer_when_history_save_fails(
+    monkeypatch,
+) -> None:
+    def fake_run_with_events(query: str, trace_id: str):
+        yield {
+            "event": "final_answer",
+            "data": {
+                "status": "success",
+                "answer": "Streamed answer",
+                "trace": [],
+            },
+        }
+
+    def fail_history_save(
+        session_id: str,
+        item: dict[str, Any],
+    ) -> None:
+        raise ConnectionError("Redis unavailable")
+
+    monkeypatch.setattr(
+        service.agent,
+        "run_with_events",
+        fake_run_with_events,
+    )
+    monkeypatch.setattr(
+        service,
+        "save_history_item",
+        fail_history_save,
+    )
+
+    messages = asyncio.run(
+        collect_stream(
+            service.stream_analysis(
+                "Analyze ORCL",
+                session_id="session-123",
+            )
+        )
+    )
+
+    assert len(messages) == 1
+    assert messages[0].startswith("event: final_answer\n")
+    assert '"status": "success"' in messages[0]
+    assert '"answer": "Streamed answer"' in messages[0]
+
+
+def test_stream_analysis_converts_unexpected_exception_to_error_event(
+    monkeypatch,
+) -> None:
+    def failing_run_with_events(query: str, trace_id: str):
+        yield {
+            "event": "start",
+            "data": {
+                "query": query,
+            },
+        }
+        raise RuntimeError("sensitive internal detail")
+
+    monkeypatch.setattr(
+        service.agent,
+        "run_with_events",
+        failing_run_with_events,
+    )
+
+    messages = asyncio.run(
+        collect_stream(service.stream_analysis("Analyze ORCL"))
+    )
+
+    assert len(messages) == 2
+    assert messages[0].startswith("event: start\n")
+    assert messages[1].startswith("event: error\n")
+
+    error_data = parse_sse_data(messages[1])
+
+    assert error_data["status"] == "error"
+    assert error_data["trace_id"]
+    assert error_data["message"] == (
+        "The analysis stream failed unexpectedly. "
+        "Please retry the request."
+    )
+    assert "sensitive internal detail" not in messages[1]
+    assert "trace" not in error_data
+
+
+def test_stream_comparison_converts_unexpected_exception_to_error_event(
+    monkeypatch,
+) -> None:
+    def failing_run_with_events(query: str, trace_id: str):
+        yield {
+            "event": "start",
+            "data": {
+                "query": query,
+            },
+        }
+        raise RuntimeError("sensitive internal detail")
+
+    monkeypatch.setattr(
+        service.agent,
+        "run_with_events",
+        failing_run_with_events,
+    )
+
+    messages = asyncio.run(
+        collect_stream(
+            service.stream_comparison(
+                tickers=["ORCL", "MSFT"],
+                question="Compare them",
+            )
+        )
+    )
+
+    assert len(messages) == 2
+    assert messages[-1].startswith("event: error\n")
+
+    error_data = parse_sse_data(messages[-1])
+
+    assert error_data["status"] == "error"
+    assert error_data["trace_id"]
+    assert error_data["message"] == (
+        "The comparison stream failed unexpectedly. "
+        "Please retry the request."
+    )
+    assert "sensitive internal detail" not in messages[-1]
+    assert "trace" not in error_data
