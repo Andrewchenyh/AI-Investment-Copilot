@@ -37,7 +37,7 @@ def test_get_current_price_tool_raises_when_no_data(mocker) -> None:
 
     with pytest.raises(ValueError, match="No price data found"):
         get_current_price_tool(CurrentPriceInput(ticker="ORCL"))
-        
+
 def test_get_historical_volatility_tool_returns_computed_volatility(mocker) -> None:
     mock_engine = mocker.patch("tools.basic_market_tools.MarketDataEngine")
     mock_engine.return_value.get_price_history.return_value = pd.DataFrame(
@@ -62,7 +62,7 @@ def test_get_historical_volatility_tool_returns_computed_volatility(mocker) -> N
         period="30d",
         interval="1d",
     )
-    
+
     mock_engine.return_value.compute_volatility.assert_called_once_with(mocker.ANY)
 
 
