@@ -2,6 +2,7 @@ import json
 from uuid import uuid4
 import logging
 import time
+from typing import Any
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 from api.schemas import AnalyzeResponse, CompareResponse
 from agents.react_agent import ReActAgent
@@ -13,6 +14,28 @@ from observability.metrics import metrics
 tool_registry = build_tool_registry()
 agent = ReActAgent(tool_registry=tool_registry, max_steps=10)
 logger = logging.getLogger(__name__)
+
+async def _save_history_safely(
+    *,
+    session_id: str,
+    item: dict[str, Any],
+    trace_id: str,
+) -> None:
+    try:
+        await run_in_threadpool(
+            save_history_item,
+            session_id=session_id,
+            item=item,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            "history_save_failed",
+            trace_id=trace_id,
+            session_id=session_id,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
 
 async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResponse:
     trace_id = str(uuid4())
@@ -38,9 +61,9 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
     )
 
     if session_id:
-        await run_in_threadpool(
-            save_history_item,
+        await _save_history_safely(
             session_id=session_id,
+            trace_id=trace_id,
             item={
                 "query": query,
                 "status": result["status"],
@@ -79,9 +102,9 @@ async def stream_analysis(query: str, session_id: str | None = None):
 
             if session_id and event["event"] in {"final_answer", "error"}:
                 result = event["data"]
-                await run_in_threadpool(
-                    save_history_item,
+                await _save_history_safely(
                     session_id=session_id,
+                    trace_id=trace_id,
                     item={
                         "query": query,
                         "status": result["status"],
@@ -112,19 +135,33 @@ async def stream_analysis(query: str, session_id: str | None = None):
             yield sse_message
 
 
-    except Exception as e:
+    except Exception as exc:
         latency_ms = (time.perf_counter() - start) * 1000
+        metrics.record_request_latency(latency_ms)
 
         log_event(
             logger,
             "analysis_stream_failed",
             trace_id=trace_id,
-            error_type=type(e).__name__,
-            error_message=str(e),
+            error_type=type(exc).__name__,
+            error_message=str(exc),
             latency_ms=round(latency_ms, 2),
         )
 
-        raise
+        error_payload = {
+            "status": "error",
+            "trace_id": trace_id,
+            "message": (
+                "The analysis stream failed unexpectedly. "
+                "Please retry the request."
+            ),
+        }
+
+        yield (
+            "event: error\n"
+            f"data: {json.dumps(error_payload)}\n\n"
+        )
+
 
 
 def build_comparison_query(tickers: list[str], question: str) -> str:
@@ -166,9 +203,9 @@ async def run_comparison(
     )
 
     if session_id:
-        await run_in_threadpool(
-            save_history_item,
+        await _save_history_safely(
             session_id=session_id,
+            trace_id=trace_id,
             item={
                 "query": comparison_query,
                 "status": result["status"],
@@ -213,9 +250,9 @@ async def stream_comparison(
 
             if session_id and event["event"] in {"final_answer", "error"}:
                 result = event["data"]
-                await run_in_threadpool(
-                    save_history_item,
+                await _save_history_safely(
                     session_id=session_id,
+                    trace_id=trace_id,
                     item={
                         "query": comparison_query,
                         "status": result["status"],
@@ -245,16 +282,29 @@ async def stream_comparison(
             )
             yield sse_message
 
-    except Exception as e:
+    except Exception as exc:
         latency_ms = (time.perf_counter() - start) * 1000
+        metrics.record_request_latency(latency_ms)
 
         log_event(
             logger,
-            "comparison_stream_failed",
+            "analysis_stream_failed",
             trace_id=trace_id,
-            error_type=type(e).__name__,
-            error_message=str(e),
+            error_type=type(exc).__name__,
+            error_message=str(exc),
             latency_ms=round(latency_ms, 2),
         )
 
-        raise
+        error_payload = {
+            "status": "error",
+            "trace_id": trace_id,
+            "message": (
+                "The comparison stream failed unexpectedly. "
+                "Please retry the request."
+            ),
+        }
+
+        yield (
+            "event: error\n"
+            f"data: {json.dumps(error_payload)}\n\n"
+        )
