@@ -21,8 +21,8 @@ class AnalyzeResponse(BaseModel):
     answer: str | None = None
     message: str | None = None
     trace: list[dict[str, Any]]
-    
-    
+
+
 class HistoryItem(BaseModel):
     query: str
     status: str
@@ -35,8 +35,8 @@ class HistoryItem(BaseModel):
 class HistoryResponse(BaseModel):
     session_id: str
     items: list[HistoryItem]
-    
-    
+
+
 class CompareRequest(BaseModel):
     tickers: list[str] = Field(
         ...,
