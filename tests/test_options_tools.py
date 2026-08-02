@@ -45,8 +45,8 @@ def test_get_options_chain_tool_selects_contracts_near_target_strike(mocker) -> 
     assert result.contract_count == 2
     assert result.selection_basis == "nearest_to_target_strike:171.0"
     assert [contract.strike for contract in result.contracts] == [170.0, 180.0]
-    
-    
+
+
 def test_analyze_cash_secured_put_with_explicit_premium(mocker) -> None:
     mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
     mock_engine.return_value.get_price_history.return_value = pd.DataFrame(
