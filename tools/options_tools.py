@@ -280,11 +280,11 @@ def get_options_chain_tool(args: OptionsChainInput) -> OptionsChainOutput:
         option_type=args.option_type,
         contract_count=len(contracts),
         selection_basis=selection_basis,
-        expiration_selection_basis=expiration_selection_basis,        
+        expiration_selection_basis=expiration_selection_basis,
         contracts=contracts,
         source="yfinance",
     )
-    
+
 class CashSecuredPutInput(BaseModel):
     ticker: str = Field(
         ...,
