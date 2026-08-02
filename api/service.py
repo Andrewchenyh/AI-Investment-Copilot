@@ -11,6 +11,15 @@ from api.history import save_history_item
 from observability.logging import log_event
 from observability.metrics import metrics
 
+
+class ServiceExecutionError(RuntimeError):
+    """Unexpected service failure with a client-safe message and trace ID."""
+
+    def __init__(self, message: str, *, trace_id: str) -> None:
+        super().__init__(message)
+        self.trace_id = trace_id
+
+
 tool_registry = build_tool_registry()
 agent = ReActAgent(tool_registry=tool_registry, max_steps=10)
 logger = logging.getLogger(__name__)
@@ -43,15 +52,33 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
     start = time.perf_counter()
     log_event(logger, "analysis_request_started", trace_id=trace_id, query=query)
 
-    result = await run_in_threadpool(
-        agent.ask,
-        query,
-        trace_id=trace_id,
-    )
+    try:
+        result = await run_in_threadpool(
+            agent.ask,
+            query,
+            trace_id=trace_id,
+        )
+    except Exception as exc:
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.record_request_latency(latency_ms)
+
+        log_event(
+            logger,
+            "analysis_request_failed",
+            trace_id=trace_id,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            latency_ms=round(latency_ms, 2),
+        )
+
+        raise ServiceExecutionError(
+            "Analysis request failed.",
+            trace_id=trace_id,
+        ) from exc
 
     latency_ms = (time.perf_counter() - start) * 1000
     metrics.record_request_latency(latency_ms)
-    
+
     log_event(
         logger,
         "analysis_request_finished",
@@ -73,7 +100,6 @@ async def run_analysis(query: str, session_id: str | None = None) -> AnalyzeResp
                 "trace": result["trace"],
             },
         )
-
 
     return AnalyzeResponse(
         status=result["status"],
@@ -172,8 +198,8 @@ def build_comparison_query(tickers: list[str], question: str) -> str:
         f"User comparison question: {question}\n"
         "Analyze each ticker using the same criteria before making the comparison."
     )
-    
-    
+
+
 async def run_comparison(
     tickers: list[str],
     question: str,
@@ -185,15 +211,33 @@ async def run_comparison(
     start = time.perf_counter()
     log_event(logger, "comparison_request_started", trace_id=trace_id, query=comparison_query)
 
-    result = await run_in_threadpool(
-        agent.ask,
-        comparison_query,
-        trace_id=trace_id,
-    )
+    try:
+        result = await run_in_threadpool(
+            agent.ask,
+            comparison_query,
+            trace_id=trace_id,
+        )
+    except Exception as exc:
+        latency_ms = (time.perf_counter() - start) * 1000
+        metrics.record_request_latency(latency_ms)
+
+        log_event(
+            logger,
+            "comparison_request_failed",
+            trace_id=trace_id,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            latency_ms=round(latency_ms, 2),
+        )
+
+        raise ServiceExecutionError(
+            "Comparison request failed.",
+            trace_id=trace_id,
+        ) from exc
 
     latency_ms = (time.perf_counter() - start) * 1000
     metrics.record_request_latency(latency_ms)
-    
+
     log_event(
         logger,
         "comparison_request_finished",
@@ -223,7 +267,7 @@ async def run_comparison(
         message=result.get("message"),
         trace=result["trace"],
     )
-    
+
 
 async def stream_comparison(
     tickers: list[str],
@@ -288,7 +332,7 @@ async def stream_comparison(
 
         log_event(
             logger,
-            "analysis_stream_failed",
+            "comparison_stream_failed",
             trace_id=trace_id,
             error_type=type(exc).__name__,
             error_message=str(exc),
