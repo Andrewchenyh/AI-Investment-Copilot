@@ -1,9 +1,9 @@
 import asyncio
-import threading
-from typing import Any
-import asyncio
 import json
 import threading
+from typing import Any
+
+import pytest
 
 import api.service as service
 
@@ -26,6 +26,30 @@ def test_run_analysis_executes_agent_in_threadpool(monkeypatch) -> None:
 
     def fake_ask(query: str, trace_id: str) -> dict[str, Any]:
         raise AssertionError("fake_ask should be passed to the threadpool wrapper")
+
+    logged_events: list[dict[str, Any]] = []
+    recorded_latencies: list[float] = []
+
+    def capture_log_event(
+        logger,
+        event: str,
+        trace_id: str | None = None,
+        **fields: Any,
+    ) -> None:
+        logged_events.append(
+            {
+                "event": event,
+                "trace_id": trace_id,
+                **fields,
+            }
+        )
+
+    monkeypatch.setattr(service, "log_event", capture_log_event)
+    monkeypatch.setattr(
+        service.metrics,
+        "record_request_latency",
+        recorded_latencies.append,
+    )
 
     async def fake_run_in_threadpool(func, *args, **kwargs):
         captured["func"] = func
@@ -53,12 +77,47 @@ def test_run_analysis_executes_agent_in_threadpool(monkeypatch) -> None:
     assert response.status == "success"
     assert response.answer == "Grounded answer"
 
+    finished = next(
+        event
+        for event in logged_events
+        if event["event"] == "analysis_request_finished"
+    )
+
+    assert finished["trace_id"] == response.trace_id
+    assert finished["status"] == "success"
+    assert finished["latency_ms"] >= 0
+    assert len(recorded_latencies) == 1
+
 
 def test_run_comparison_executes_agent_in_threadpool(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_ask(query: str, trace_id: str) -> dict[str, Any]:
         raise AssertionError("fake_ask should be passed to the threadpool wrapper")
+
+    logged_events: list[dict[str, Any]] = []
+    recorded_latencies: list[float] = []
+
+    def capture_log_event(
+        logger,
+        event: str,
+        trace_id: str | None = None,
+        **fields: Any,
+    ) -> None:
+        logged_events.append(
+            {
+                "event": event,
+                "trace_id": trace_id,
+                **fields,
+            }
+        )
+
+    monkeypatch.setattr(service, "log_event", capture_log_event)
+    monkeypatch.setattr(
+        service.metrics,
+        "record_request_latency",
+        recorded_latencies.append,
+    )
 
     async def fake_run_in_threadpool(func, *args, **kwargs):
         captured["func"] = func
@@ -94,6 +153,17 @@ def test_run_comparison_executes_agent_in_threadpool(monkeypatch) -> None:
     assert captured["kwargs"]["trace_id"] == response.trace_id
     assert response.status == "success"
     assert response.answer == "ORCL and MSFT comparison"
+
+    finished = next(
+        event
+        for event in logged_events
+        if event["event"] == "comparison_request_finished"
+    )
+
+    assert finished["trace_id"] == response.trace_id
+    assert finished["status"] == "success"
+    assert finished["latency_ms"] >= 0
+    assert len(recorded_latencies) == 1
 
 
 def test_stream_analysis_iterates_agent_in_threadpool(monkeypatch) -> None:
@@ -414,6 +484,22 @@ def test_stream_comparison_converts_unexpected_exception_to_error_event(
         failing_run_with_events,
     )
 
+    logged_events: list[str] = []
+
+    def capture_log_event(
+        logger,
+        event: str,
+        trace_id: str | None = None,
+        **fields: Any,
+    ) -> None:
+        logged_events.append(event)
+
+    monkeypatch.setattr(
+        service,
+        "log_event",
+        capture_log_event,
+    )
+
     messages = asyncio.run(
         collect_stream(
             service.stream_comparison(
@@ -436,3 +522,115 @@ def test_stream_comparison_converts_unexpected_exception_to_error_event(
     )
     assert "sensitive internal detail" not in messages[-1]
     assert "trace" not in error_data
+
+    assert "comparison_stream_failed" in logged_events
+    assert "analysis_stream_failed" not in logged_events
+
+
+def test_run_analysis_records_and_logs_unexpected_failure(
+    monkeypatch,
+) -> None:
+    logged_events: list[dict[str, Any]] = []
+    recorded_latencies: list[float] = []
+
+    def failing_ask(query: str, trace_id: str) -> dict[str, Any]:
+        raise RuntimeError("Gemini unavailable")
+
+    def capture_log_event(
+        logger,
+        event: str,
+        trace_id: str | None = None,
+        **fields: Any,
+    ) -> None:
+        logged_events.append(
+            {
+                "event": event,
+                "trace_id": trace_id,
+                **fields,
+            }
+        )
+
+    monkeypatch.setattr(service.agent, "ask", failing_ask)
+    monkeypatch.setattr(service, "log_event", capture_log_event)
+    monkeypatch.setattr(
+        service.metrics,
+        "record_request_latency",
+        recorded_latencies.append,
+    )
+
+    with pytest.raises(service.ServiceExecutionError) as exc_info:
+        asyncio.run(service.run_analysis("Analyze ORCL"))
+
+    failure = next(
+        event
+        for event in logged_events
+        if event["event"] == "analysis_request_failed"
+    )
+
+    assert failure["trace_id"]
+    assert failure["error_type"] == "RuntimeError"
+    assert failure["error_message"] == "Gemini unavailable"
+    assert failure["latency_ms"] >= 0
+    assert len(recorded_latencies) == 1
+    assert recorded_latencies[0] >= 0
+    assert exc_info.value.trace_id == failure["trace_id"]
+    assert str(exc_info.value) == "Analysis request failed."
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "Gemini unavailable"
+
+
+def test_run_comparison_records_and_logs_unexpected_failure(
+    monkeypatch,
+) -> None:
+    logged_events: list[dict[str, Any]] = []
+    recorded_latencies: list[float] = []
+
+    def failing_ask(query: str, trace_id: str) -> dict[str, Any]:
+        raise RuntimeError("Gemini unavailable")
+
+    def capture_log_event(
+        logger,
+        event: str,
+        trace_id: str | None = None,
+        **fields: Any,
+    ) -> None:
+        logged_events.append(
+            {
+                "event": event,
+                "trace_id": trace_id,
+                **fields,
+            }
+        )
+
+    monkeypatch.setattr(service.agent, "ask", failing_ask)
+    monkeypatch.setattr(service, "log_event", capture_log_event)
+    monkeypatch.setattr(
+        service.metrics,
+        "record_request_latency",
+        recorded_latencies.append,
+    )
+
+    with pytest.raises(service.ServiceExecutionError) as exc_info:
+        asyncio.run(
+            service.run_comparison(
+                tickers=["ORCL", "MSFT"],
+                question="Compare them",
+            )
+        )
+
+    failure = next(
+        event
+        for event in logged_events
+        if event["event"] == "comparison_request_failed"
+    )
+
+    assert failure["trace_id"]
+    assert failure["error_type"] == "RuntimeError"
+    assert failure["error_message"] == "Gemini unavailable"
+    assert failure["latency_ms"] >= 0
+    assert len(recorded_latencies) == 1
+    assert recorded_latencies[0] >= 0
+    assert exc_info.value.trace_id == failure["trace_id"]
+    assert str(exc_info.value) == "Comparison request failed."
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "Gemini unavailable"
