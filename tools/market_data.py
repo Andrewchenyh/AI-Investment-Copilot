@@ -10,10 +10,69 @@ Responsibilities:
 - Provide cleaned data for downstream analysis
 """
 
-import yfinance as yf
-import pandas as pd
-import numpy as np
+from dataclasses import dataclass
 from functools import lru_cache
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
+
+@dataclass(frozen=True)
+class DailyCloseSnapshot:
+    price: float
+    as_of: str
+
+
+def extract_latest_daily_close(
+    price_history: pd.DataFrame,
+    ticker: str,
+) -> DailyCloseSnapshot:
+    if price_history.empty:
+        raise ValueError(
+            f"No price data found for ticker '{ticker}'."
+        )
+
+    required_columns = {"Date", "Close"}
+    missing_columns = sorted(
+        required_columns - set(price_history.columns)
+    )
+    if missing_columns:
+        missing_list = ", ".join(missing_columns)
+        raise ValueError(
+            f"Price data for ticker '{ticker}' is missing required "
+            f"columns: {missing_list}."
+        )
+
+    latest_row = price_history.iloc[-1]
+
+    try:
+        price = float(latest_row["Close"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Latest closing price for ticker '{ticker}' is invalid."
+        ) from exc
+
+    if not np.isfinite(price) or price <= 0:
+        raise ValueError(
+            f"Latest closing price for ticker '{ticker}' must be "
+            "finite and positive."
+        )
+
+    as_of_timestamp = pd.to_datetime(
+        latest_row["Date"],
+        errors="coerce",
+    )
+    if pd.isna(as_of_timestamp):
+        raise ValueError(
+            f"Latest price date for ticker '{ticker}' is invalid."
+        )
+
+    return DailyCloseSnapshot(
+        price=price,
+        as_of=as_of_timestamp.date().isoformat(),
+    )
+
 
 class MarketDataEngine:
     """
@@ -23,9 +82,6 @@ class MarketDataEngine:
     def __init__(self):
         pass
 
-    # --------------------------------------------------
-    # Stock Metadata
-    # --------------------------------------------------
     @lru_cache(maxsize=100)
     def get_stock_info(self, ticker: str) -> dict:
         """
@@ -188,4 +244,3 @@ if __name__ == "__main__":
 
     print("\nPrice Data Preview:")
     print(data["price_data"].tail(10))
-
