@@ -1,4 +1,5 @@
 import math
+from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
@@ -12,6 +13,24 @@ from analysis.risk_metrics import (
     simple_return_on_secured_cash,
 )
 from tools.market_data import MarketDataEngine
+
+
+WIDE_BID_ASK_SPREAD_PCT = 0.20
+
+QuoteStatus = Literal[
+    "normal",
+    "wide",
+    "crossed",
+    "unavailable",
+]
+
+
+@dataclass(frozen=True)
+class QuoteMetrics:
+    mid_price: float | None
+    bid_ask_spread: float | None
+    bid_ask_spread_pct: float | None
+    quote_status: QuoteStatus
 
 
 def _coerce_optional_non_negative_float(
@@ -69,6 +88,94 @@ def _coerce_optional_bool(value: object) -> bool | None:
     return None
 
 
+def _prepare_option_contracts(
+    option_df,
+    *,
+    require_contract_symbol: bool,
+):
+    required_columns = {"strike"}
+
+    if require_contract_symbol:
+        required_columns.add("contractSymbol")
+
+    missing_columns = sorted(
+        required_columns - set(option_df.columns)
+    )
+    if missing_columns:
+        missing_list = ", ".join(missing_columns)
+        raise ValueError(
+            f"Options data is missing required columns: {missing_list}."
+        )
+
+    prepared = option_df.copy()
+
+    prepared["strike"] = prepared["strike"].map(
+        _coerce_optional_non_negative_float
+    )
+    valid_rows = prepared["strike"].notna() & prepared["strike"].gt(0)
+
+    if require_contract_symbol:
+        prepared["contractSymbol"] = prepared["contractSymbol"].map(
+            lambda value: (
+                value.strip()
+                if isinstance(value, str)
+                else ""
+            )
+        )
+        valid_rows &= prepared["contractSymbol"].ne("")
+
+    for column in ("openInterest", "volume"):
+        if column not in prepared.columns:
+            prepared[column] = None
+
+        prepared[column] = prepared[column].map(
+            _coerce_optional_non_negative_int
+        )
+
+    return prepared.loc[valid_rows].copy()
+
+
+def _calculate_quote_metrics(
+    bid: float | None,
+    ask: float | None,
+) -> QuoteMetrics:
+    if (
+        bid is None
+        or ask is None
+        or bid <= 0
+        or ask <= 0
+    ):
+        return QuoteMetrics(
+            mid_price=None,
+            bid_ask_spread=None,
+            bid_ask_spread_pct=None,
+            quote_status="unavailable",
+        )
+
+    if ask < bid:
+        return QuoteMetrics(
+            mid_price=None,
+            bid_ask_spread=None,
+            bid_ask_spread_pct=None,
+            quote_status="crossed",
+        )
+
+    mid_price = (bid + ask) / 2
+    bid_ask_spread = ask - bid
+    bid_ask_spread_pct = bid_ask_spread / mid_price
+
+    quote_status: QuoteStatus = "normal"
+    if bid_ask_spread_pct > WIDE_BID_ASK_SPREAD_PCT:
+        quote_status = "wide"
+
+    return QuoteMetrics(
+        mid_price=mid_price,
+        bid_ask_spread=bid_ask_spread,
+        bid_ask_spread_pct=bid_ask_spread_pct,
+        quote_status=quote_status,
+    )
+
+
 def _get_reference_spot_price(engine: MarketDataEngine, ticker: str) -> float | None:
     price_history = engine.get_price_history(
         ticker=ticker,
@@ -88,7 +195,6 @@ def _choose_relevant_contracts(
     reference_price: float | None,
 ):
     ranked = option_df.copy()
-    ranked["strike"] = ranked["strike"].astype(float)
 
     if target_strike is not None:
         ranked["distance_score"] = (ranked["strike"] - target_strike).abs()
@@ -122,6 +228,7 @@ def _choose_relevant_contracts(
 
     ranked = ranked.sort_values(by=["openInterest", "volume"], ascending=[False, False])
     return ranked.head(limit).copy()
+
 
 def _choose_expiration(
     expirations: list[str],
@@ -226,6 +333,10 @@ class OptionContract(BaseModel):
     last_price: float | None = Field(default=None, ge=0)
     bid: float | None = Field(default=None, ge=0)
     ask: float | None = Field(default=None, ge=0)
+    mid_price: float | None = Field(default=None, ge=0)
+    bid_ask_spread: float | None = Field(default=None, ge=0)
+    bid_ask_spread_pct: float | None = Field(default=None, ge=0)
+    quote_status: QuoteStatus
     volume: int | None = Field(default=None, ge=0)
     open_interest: int | None = Field(default=None, ge=0)
     implied_volatility: float | None = Field(default=None, ge=0)
@@ -273,6 +384,17 @@ def get_options_chain_tool(args: OptionsChainInput) -> OptionsChainOutput:
             f"No {args.option_type} contracts found for ticker '{args.ticker}' at expiration '{expiration}'."
         )
 
+    option_df = _prepare_option_contracts(
+        option_df,
+        require_contract_symbol=True,
+    )
+
+    if option_df.empty:
+        raise ValueError(
+            f"No valid {args.option_type} contracts found for ticker "
+            f"'{args.ticker}' at expiration '{expiration}'."
+        )
+
     reference_price = args.reference_price
     if reference_price is None and args.target_strike is None:
         reference_price = _get_reference_spot_price(engine, args.ticker)
@@ -293,6 +415,9 @@ def get_options_chain_tool(args: OptionsChainInput) -> OptionsChainOutput:
 
     contracts: list[OptionContract] = []
     for _, row in selected.iterrows():
+        bid = _coerce_optional_non_negative_float(row.get("bid"))
+        ask = _coerce_optional_non_negative_float(row.get("ask"))
+        quote_metrics = _calculate_quote_metrics(bid, ask)
         contracts.append(
             OptionContract(
                 contract_symbol=str(row.get("contractSymbol", "")),
@@ -300,8 +425,12 @@ def get_options_chain_tool(args: OptionsChainInput) -> OptionsChainOutput:
                 last_price=_coerce_optional_non_negative_float(
                     row.get("lastPrice")
                 ),
-                bid=_coerce_optional_non_negative_float(row.get("bid")),
-                ask=_coerce_optional_non_negative_float(row.get("ask")),
+                bid=bid,
+                ask=ask,
+                mid_price=quote_metrics.mid_price,
+                bid_ask_spread=quote_metrics.bid_ask_spread,
+                bid_ask_spread_pct=quote_metrics.bid_ask_spread_pct,
+                quote_status=quote_metrics.quote_status,
                 volume=_coerce_optional_non_negative_int(row.get("volume")),
                 open_interest=_coerce_optional_non_negative_int(
                     row.get("openInterest")
@@ -325,6 +454,7 @@ def get_options_chain_tool(args: OptionsChainInput) -> OptionsChainOutput:
         contracts=contracts,
         source="yfinance",
     )
+
 
 class CashSecuredPutInput(BaseModel):
     ticker: str = Field(
@@ -405,8 +535,17 @@ def analyze_cash_secured_put_tool(
                 f"No put contracts found for ticker '{args.ticker}' at expiration '{args.expiration}'."
             )
 
-        puts_df = puts_df.copy()
-        puts_df["strike"] = puts_df["strike"].astype(float)
+        puts_df = _prepare_option_contracts(
+            puts_df,
+            require_contract_symbol=False,
+        )
+
+        if puts_df.empty:
+            raise ValueError(
+                f"No valid put contracts found for ticker '{args.ticker}' "
+                f"at expiration '{args.expiration}'."
+            )
+
         strike_tolerance = 1e-6
         matches = puts_df[(puts_df["strike"] - args.strike).abs() <= strike_tolerance].copy()
         if matches.empty:
