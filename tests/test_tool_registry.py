@@ -54,6 +54,17 @@ def test_registry_includes_technical_analysis_tool() -> None:
     assert "MACD" in tool.description
 
 
+def test_market_tool_descriptions_match_their_data_contracts() -> None:
+    registry = build_tool_registry()
+
+    price_tool = registry.get_tool("get_current_price")
+    volatility_tool = registry.get_tool("get_historical_volatility")
+
+    assert "daily closing price" in price_tool.description
+    assert "effective date" in price_tool.description
+    assert "realized volatility" in volatility_tool.description
+
+
 def test_technical_analysis_registry_execution_uses_cache(mocker) -> None:
     cached_result = {
         "ticker": "AAPL",
