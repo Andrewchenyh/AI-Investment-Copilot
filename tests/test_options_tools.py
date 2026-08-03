@@ -262,6 +262,7 @@ def test_analyze_cash_secured_put_with_explicit_premium(mocker) -> None:
     mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
     mock_engine.return_value.get_price_history.return_value = pd.DataFrame(
         {
+            "Date": [pd.Timestamp("2026-07-31")],
             "Close": [188.16],
         }
     )
@@ -277,12 +278,91 @@ def test_analyze_cash_secured_put_with_explicit_premium(mocker) -> None:
 
     assert result.ticker == "ORCL"
     assert result.spot_price == 188.16
+    assert result.spot_price_as_of == "2026-07-31"
+    assert result.spot_price_type == "latest_daily_close"
     assert result.strike == 180
     assert result.premium == 3.30
+    assert result.premium_source == "provided_input"
+    assert result.premium_quote_status is None
+    assert result.premium_warning is None
     assert result.break_even_price == 176.70
     assert result.max_profit_dollars == 330.0
+    assert result.max_loss_dollars == 17670.0
     assert result.cash_required_dollars == 18000
     assert result.simple_return == pytest.approx(0.0183333333)
+    assert result.collateral_basis == (
+        "strike_times_contract_size_before_premium"
+    )
+    assert result.return_basis == "premium_over_gross_strike_collateral"
+    assert result.annualization_method == "simple_non_compounded_365_day"
+    assert len(result.limitations) == 4
+    assert any("Fees, taxes" in item for item in result.limitations)
+    assert any("early-assignment" in item for item in result.limitations)
+
+
+@pytest.mark.parametrize(
+    (
+        "bid",
+        "ask",
+        "last_price",
+        "expected_premium",
+        "expected_source",
+        "expected_status",
+        "warning_fragment",
+    ),
+    [
+        (1.9, 2.1, 1.8, 2.0, "bid_ask_midpoint", "normal", None),
+        (1.0, 3.0, 1.8, 2.0, "bid_ask_midpoint", "wide", "exceeds 20%"),
+        (2.1, 2.0, 1.8, 1.8, "last_price", "crossed", "was crossed"),
+        (0.0, 2.0, 1.8, 1.8, "last_price", "unavailable", "unavailable"),
+    ],
+)
+def test_cash_secured_put_records_inferred_premium_source(
+    mocker,
+    bid: float,
+    ask: float,
+    last_price: float,
+    expected_premium: float,
+    expected_source: str,
+    expected_status: str,
+    warning_fragment: str | None,
+) -> None:
+    mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
+    mock_engine.return_value.get_price_history.return_value = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2026-07-31")],
+            "Close": [188.16],
+        }
+    )
+    mock_engine.return_value.get_options_chain.return_value = {
+        "puts": pd.DataFrame(
+            {
+                "strike": [180.0],
+                "lastPrice": [last_price],
+                "bid": [bid],
+                "ask": [ask],
+                "volume": [10],
+                "openInterest": [100],
+            }
+        )
+    }
+
+    result = analyze_cash_secured_put_tool(
+        CashSecuredPutInput(
+            ticker="ORCL",
+            strike=180,
+            expiration="2099-01-01",
+        )
+    )
+
+    assert result.premium == pytest.approx(expected_premium)
+    assert result.premium_source == expected_source
+    assert result.premium_quote_status == expected_status
+
+    if warning_fragment is None:
+        assert result.premium_warning is None
+    else:
+        assert warning_fragment in (result.premium_warning or "")
 
 
 def test_cash_secured_put_input_rejects_zero_premium() -> None:
@@ -299,10 +379,60 @@ def test_cash_secured_put_input_rejects_zero_premium() -> None:
     assert premium_error["type"] == "greater_than"
 
 
+@pytest.mark.parametrize("premium", [180, 181])
+def test_cash_secured_put_input_rejects_premium_at_or_above_strike(
+    premium: float,
+) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="premium must be less than strike",
+    ):
+        CashSecuredPutInput(
+            ticker="ORCL",
+            strike=180,
+            expiration="2099-01-01",
+            premium=premium,
+        )
+
+
+def test_cash_secured_put_rejects_inferred_premium_above_strike(mocker) -> None:
+    mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
+    mock_engine.return_value.get_price_history.return_value = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp("2026-07-31")],
+            "Close": [188.16],
+        }
+    )
+    mock_engine.return_value.get_options_chain.return_value = {
+        "puts": pd.DataFrame(
+            {
+                "strike": [180.0],
+                "lastPrice": [181.0],
+                "bid": [180.0],
+                "ask": [182.0],
+                "volume": [10],
+                "openInterest": [100],
+            }
+        )
+    }
+
+    with pytest.raises(ValueError, match="must be positive and less than"):
+        analyze_cash_secured_put_tool(
+            CashSecuredPutInput(
+                ticker="ORCL",
+                strike=180,
+                expiration="2099-01-01",
+            )
+        )
+
+
 def test_cash_secured_put_rejects_unusable_market_premium(mocker) -> None:
     mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
     mock_engine.return_value.get_price_history.return_value = pd.DataFrame(
-        {"Close": [188.16]}
+        {
+            "Date": [pd.Timestamp("2026-07-31")],
+            "Close": [188.16],
+        }
     )
     mock_engine.return_value.get_options_chain.return_value = {
         "puts": pd.DataFrame(
