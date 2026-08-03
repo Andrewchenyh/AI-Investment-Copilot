@@ -53,7 +53,6 @@ PRESET_QUERIES = {
     "Cash-secured put: ORCL": "Is it a good time to write a cash-secured put on ORCL?",
     "Explicit strike: ORCL $170 put": "Is it a good time to write a $170 cash-secured put on ORCL?",
     "Volatility: ORCL": "What is ORCL recent historical volatility?",
-    "Compare puts: ORCL vs MSFT": "Compare ORCL and MSFT for writing cash-secured puts.",
 }
 
 with st.sidebar:
