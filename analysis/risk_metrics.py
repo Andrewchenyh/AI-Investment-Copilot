@@ -12,6 +12,17 @@ def cash_secured_put_max_profit(premium: float, contract_size: int = 100) -> flo
     return premium * contract_size
 
 
+def cash_secured_put_max_loss(
+    strike: float,
+    premium: float,
+    contract_size: int = 100,
+) -> float:
+    """
+    Maximum loss for a short cash-secured put if the underlying falls to zero.
+    """
+    return (strike - premium) * contract_size
+
+
 def cash_secured_put_cash_required(strike: float, contract_size: int = 100) -> float:
     """
     Cash required to secure assignment on one short put contract.
