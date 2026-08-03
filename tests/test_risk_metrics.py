@@ -4,6 +4,7 @@ from analysis.risk_metrics import (
     annualized_return,
     cash_secured_put_break_even,
     cash_secured_put_cash_required,
+    cash_secured_put_max_loss,
     cash_secured_put_max_profit,
     simple_return_on_secured_cash,
 )
@@ -15,6 +16,17 @@ def test_cash_secured_put_break_even() -> None:
 
 def test_cash_secured_put_max_profit() -> None:
     assert cash_secured_put_max_profit(premium=2.25, contract_size=100) == 225
+
+
+def test_cash_secured_put_max_loss() -> None:
+    assert (
+        cash_secured_put_max_loss(
+            strike=180,
+            premium=3.30,
+            contract_size=100,
+        )
+        == 17670
+    )
 
 
 def test_cash_secured_put_cash_required() -> None:
