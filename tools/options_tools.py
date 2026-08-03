@@ -1,5 +1,7 @@
-from typing import Literal
+import math
 from datetime import date
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from analysis.risk_metrics import (
@@ -12,22 +14,59 @@ from analysis.risk_metrics import (
 from tools.market_data import MarketDataEngine
 
 
-def _coerce_float(value: object, default: float = 0.0) -> float:
+def _coerce_optional_non_negative_float(
+    value: object,
+) -> float | None:
     if value is None:
-        return default
+        return None
+
     try:
-        return float(value)
+        coerced = float(value)
     except (TypeError, ValueError):
-        return default
+        return None
+
+    if not math.isfinite(coerced) or coerced < 0:
+        return None
+
+    return coerced
 
 
-def _coerce_int(value: object, default: int = 0) -> int:
+def _coerce_optional_non_negative_int(
+    value: object,
+) -> int | None:
+    coerced = _coerce_optional_non_negative_float(value)
+
+    if coerced is None or not coerced.is_integer():
+        return None
+
+    return int(coerced)
+
+
+def _coerce_optional_bool(value: object) -> bool | None:
     if value is None:
-        return default
+        return None
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+
+        if normalized in {"true", "1"}:
+            return True
+
+        if normalized in {"false", "0"}:
+            return False
+
+        return None
+
     try:
-        return int(value)
+        if value == 1:
+            return True
+
+        if value == 0:
+            return False
     except (TypeError, ValueError):
-        return default
+        return None
+
+    return None
 
 
 def _get_reference_spot_price(engine: MarketDataEngine, ticker: str) -> float | None:
@@ -183,14 +222,14 @@ class OptionsChainInput(BaseModel):
 
 class OptionContract(BaseModel):
     contract_symbol: str
-    strike: float
-    last_price: float
-    bid: float
-    ask: float
-    volume: int
-    open_interest: int
-    implied_volatility: float | None = None
-    in_the_money: bool
+    strike: float = Field(..., gt=0)
+    last_price: float | None = Field(default=None, ge=0)
+    bid: float | None = Field(default=None, ge=0)
+    ask: float | None = Field(default=None, ge=0)
+    volume: int | None = Field(default=None, ge=0)
+    open_interest: int | None = Field(default=None, ge=0)
+    implied_volatility: float | None = Field(default=None, ge=0)
+    in_the_money: bool | None = None
     expiration: str
     option_type: str
 
@@ -257,18 +296,20 @@ def get_options_chain_tool(args: OptionsChainInput) -> OptionsChainOutput:
         contracts.append(
             OptionContract(
                 contract_symbol=str(row.get("contractSymbol", "")),
-                strike=_coerce_float(row.get("strike")),
-                last_price=_coerce_float(row.get("lastPrice")),
-                bid=_coerce_float(row.get("bid")),
-                ask=_coerce_float(row.get("ask")),
-                volume=_coerce_int(row.get("volume")),
-                open_interest=_coerce_int(row.get("openInterest")),
-                implied_volatility=(
-                    _coerce_float(row.get("impliedVolatility"))
-                    if row.get("impliedVolatility") is not None
-                    else None
+                strike=float(row["strike"]),
+                last_price=_coerce_optional_non_negative_float(
+                    row.get("lastPrice")
                 ),
-                in_the_money=bool(row.get("inTheMoney", False)),
+                bid=_coerce_optional_non_negative_float(row.get("bid")),
+                ask=_coerce_optional_non_negative_float(row.get("ask")),
+                volume=_coerce_optional_non_negative_int(row.get("volume")),
+                open_interest=_coerce_optional_non_negative_int(
+                    row.get("openInterest")
+                ),
+                implied_volatility=_coerce_optional_non_negative_float(
+                    row.get("impliedVolatility")
+                ),
+                in_the_money=_coerce_optional_bool(row.get("inTheMoney")),
                 expiration=expiration,
                 option_type=args.option_type,
             )
@@ -301,8 +342,11 @@ class CashSecuredPutInput(BaseModel):
     )
     premium: float | None = Field(
         default=None,
-        ge=0,
-        description="Optional premium to use directly. If omitted, the tool will try to infer it from the option chain."
+        gt=0,
+        description=(
+            "Optional premium to use directly. If omitted, the tool will "
+            "try to infer it from the option chain."
+        ),
     )
     contract_size: int = Field(
         default=100,
@@ -379,16 +423,27 @@ def analyze_cash_secured_put_tool(
             by=["openInterest", "volume"],
             ascending=[False, False],
         ).iloc[0]
-        bid = _coerce_float(best_match.get("bid"))
-        ask = _coerce_float(best_match.get("ask"))
-        last_price = _coerce_float(best_match.get("lastPrice"))
+        bid = _coerce_optional_non_negative_float(best_match.get("bid"))
+        ask = _coerce_optional_non_negative_float(best_match.get("ask"))
+        last_price = _coerce_optional_non_negative_float(
+            best_match.get("lastPrice")
+        )
 
-        if bid > 0 and ask > 0:
+        if (
+            bid is not None
+            and ask is not None
+            and bid > 0
+            and ask > 0
+        ):
             premium = (bid + ask) / 2
-        elif last_price > 0:
+        elif last_price is not None and last_price > 0:
             premium = last_price
         else:
-            premium = 0.0
+            raise ValueError(
+                f"No usable premium quote found for ticker '{args.ticker}' "
+                f"with strike {args.strike} and expiration '{args.expiration}'. "
+                "Bid, ask, and last price are unavailable or non-positive."
+            )
 
     expiration_date = date.fromisoformat(args.expiration)
     today = date.today()
