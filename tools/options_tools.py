@@ -1,18 +1,22 @@
 import math
 from dataclasses import dataclass
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from analysis.risk_metrics import (
     annualized_return,
     cash_secured_put_break_even,
     cash_secured_put_cash_required,
     cash_secured_put_max_profit,
+    cash_secured_put_max_loss,
     simple_return_on_secured_cash,
 )
-from tools.market_data import MarketDataEngine
+from tools.market_data import (
+    MarketDataEngine,
+    extract_latest_daily_close,
+)
 
 
 WIDE_BID_ASK_SPREAD_PCT = 0.20
@@ -24,6 +28,32 @@ QuoteStatus = Literal[
     "unavailable",
 ]
 
+PremiumSource = Literal[
+    "provided_input",
+    "bid_ask_midpoint",
+    "last_price",
+]
+
+
+CollateralBasis = Literal[
+    "strike_times_contract_size_before_premium"
+]
+
+ReturnBasis = Literal[
+    "premium_over_gross_strike_collateral"
+]
+
+AnnualizationMethod = Literal[
+    "simple_non_compounded_365_day"
+]
+
+CSP_LIMITATIONS = (
+    "Annualized return is a simple, non-compounded approximation.",
+    "Fees, taxes, and execution slippage are not included.",
+    "Dividend effects and early-assignment risk are not modeled.",
+    "Maximum loss assumes the underlying price falls to zero.",
+)
+
 
 @dataclass(frozen=True)
 class QuoteMetrics:
@@ -34,7 +64,7 @@ class QuoteMetrics:
 
 
 def _coerce_optional_non_negative_float(
-    value: object,
+    value: Any,
 ) -> float | None:
     if value is None:
         return None
@@ -484,16 +514,41 @@ class CashSecuredPutInput(BaseModel):
         description="Number of shares controlled by one options contract."
     )
 
+    @model_validator(mode="after")
+    def validate_premium_below_strike(self) -> "CashSecuredPutInput":
+        if self.premium is not None and self.premium >= self.strike:
+            raise ValueError(
+                "premium must be less than strike."
+            )
+
+        return self
+
 
 class CashSecuredPutOutput(BaseModel):
     ticker: str
     spot_price: float
+    spot_price_as_of: str
+    spot_price_type: Literal["latest_daily_close"] = "latest_daily_close"
     strike: float
     expiration: str
     days_to_expiration: int
     premium: float
+    premium_source: PremiumSource
+    premium_quote_status: QuoteStatus | None = None
+    premium_warning: str | None = None
     break_even_price: float
     max_profit_dollars: float
+    max_loss_dollars: float
+    collateral_basis: CollateralBasis = (
+        "strike_times_contract_size_before_premium"
+    )
+    return_basis: ReturnBasis = (
+        "premium_over_gross_strike_collateral"
+    )
+    annualization_method: AnnualizationMethod = (
+        "simple_non_compounded_365_day"
+    )
+    limitations: list[str]
     cash_required_dollars: float
     simple_return: float
     annualized_return: float
@@ -509,9 +564,9 @@ def analyze_cash_secured_put_tool(
     """
     Analyze a candidate short cash-secured put position.
 
-    If premium is not supplied, the tool looks up the matching put contract
-    by strike and expiration and uses the contract's mid price when possible,
-    otherwise falls back to last price.
+    If premium is not supplied, the tool uses a valid non-crossed bid-ask
+    midpoint when available, otherwise falls back to the last price with a
+    warning. The result records the selected premium's source.
     """
     engine = MarketDataEngine()
 
@@ -520,12 +575,17 @@ def analyze_cash_secured_put_tool(
         period="5d",
         interval="1d",
     )
-    if price_history.empty:
-        raise ValueError(f"No price data found for ticker '{args.ticker}'.")
-
-    spot_price = float(price_history["Close"].iloc[-1])
+    spot_snapshot = extract_latest_daily_close(
+        price_history,
+        args.ticker,
+    )
+    spot_price = spot_snapshot.price
 
     premium = args.premium
+    premium_source: PremiumSource = "provided_input"
+    premium_quote_status: QuoteStatus | None = None
+    premium_warning: str | None = None
+
     if premium is None:
         chain = engine.get_options_chain(args.ticker, args.expiration)
         puts_df = chain["puts"]
@@ -567,22 +627,47 @@ def analyze_cash_secured_put_tool(
         last_price = _coerce_optional_non_negative_float(
             best_match.get("lastPrice")
         )
+        quote_metrics = _calculate_quote_metrics(bid, ask)
+        premium_quote_status = quote_metrics.quote_status
 
-        if (
-            bid is not None
-            and ask is not None
-            and bid > 0
-            and ask > 0
-        ):
-            premium = (bid + ask) / 2
+        if quote_metrics.mid_price is not None:
+            premium = quote_metrics.mid_price
+            premium_source = "bid_ask_midpoint"
+
+            if quote_metrics.quote_status == "wide":
+                premium_warning = (
+                    "The bid-ask spread exceeds 20% of the midpoint, "
+                    "so the midpoint may not be executable."
+                )
+
         elif last_price is not None and last_price > 0:
             premium = last_price
+            premium_source = "last_price"
+
+            if quote_metrics.quote_status == "crossed":
+                premium_warning = (
+                    "The bid-ask quote was crossed, so the last traded "
+                    "price was used and may be stale."
+                )
+            else:
+                premium_warning = (
+                    "A usable two-sided bid-ask quote was unavailable, "
+                    "so the last traded price was used and may be stale."
+                )
+
         else:
             raise ValueError(
                 f"No usable premium quote found for ticker '{args.ticker}' "
-                f"with strike {args.strike} and expiration '{args.expiration}'. "
-                "Bid, ask, and last price are unavailable or non-positive."
+                f"with strike {args.strike} and expiration "
+                f"'{args.expiration}'. Bid, ask, and last price are "
+                "unavailable or non-positive."
             )
+
+    if premium is None or premium >= args.strike:
+        raise ValueError(
+            f"Premium for ticker '{args.ticker}' must be positive "
+            "and less than the strike."
+        )
 
     expiration_date = date.fromisoformat(args.expiration)
     today = date.today()
@@ -595,6 +680,11 @@ def analyze_cash_secured_put_tool(
 
     break_even = cash_secured_put_break_even(args.strike, premium)
     max_profit = cash_secured_put_max_profit(premium, args.contract_size)
+    max_loss = cash_secured_put_max_loss(
+        args.strike,
+        premium,
+        args.contract_size,
+    )
     cash_required = cash_secured_put_cash_required(args.strike, args.contract_size)
     simple_ret = simple_return_on_secured_cash(premium, args.strike)
     annualized_ret = annualized_return(simple_ret, days_to_expiration)
@@ -605,12 +695,18 @@ def analyze_cash_secured_put_tool(
     return CashSecuredPutOutput(
         ticker=args.ticker.upper(),
         spot_price=spot_price,
+        spot_price_as_of=spot_snapshot.as_of,
         strike=args.strike,
         expiration=args.expiration,
         days_to_expiration=days_to_expiration,
         premium=float(premium),
+        premium_source=premium_source,
+        premium_quote_status=premium_quote_status,
+        premium_warning=premium_warning,
         break_even_price=break_even,
         max_profit_dollars=max_profit,
+        max_loss_dollars=max_loss,
+        limitations=list(CSP_LIMITATIONS),
         cash_required_dollars=cash_required,
         simple_return=simple_ret,
         annualized_return=annualized_ret,
