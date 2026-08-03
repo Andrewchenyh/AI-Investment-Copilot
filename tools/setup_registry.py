@@ -42,7 +42,10 @@ def build_tool_registry() -> ToolRegistry:
     registry.register(
         RegisteredTool(
             name="get_current_price",
-            description="Fetch the most recent available stock price for a ticker.",
+            description=(
+                "Fetch the most recent available daily closing price for a "
+                "ticker, including its effective date."
+            ),
             input_model=CurrentPriceInput,
             output_model=CurrentPriceOutput,
             func=get_current_price_tool,
@@ -52,7 +55,10 @@ def build_tool_registry() -> ToolRegistry:
     registry.register(
         RegisteredTool(
             name="get_historical_volatility",
-            description="Compute annualized realized volatility from recent daily closing prices.",
+            description=(
+                "Compute annualized realized volatility from recent daily "
+                "closing prices."
+            ),
             input_model=HistoricalVolatilityInput,
             output_model=HistoricalVolatilityOutput,
             func=get_historical_volatility_tool,
