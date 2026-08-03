@@ -1,11 +1,10 @@
 import logging
 
+from fastapi import Header, HTTPException
 from redis.exceptions import RedisError
 
-from observability.logging import log_event
-from fastapi import Header, HTTPException
-
 from api.redis_client import get_redis_client
+from observability.logging import log_event
 
 
 REQUESTS_PER_MINUTE = 10
