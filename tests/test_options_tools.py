@@ -5,9 +5,11 @@ from pydantic import ValidationError
 from tools.options_tools import (
     CashSecuredPutInput,
     OptionsChainInput,
+    _calculate_quote_metrics,
     _coerce_optional_bool,
     _coerce_optional_non_negative_float,
     _coerce_optional_non_negative_int,
+    _prepare_option_contracts,
     analyze_cash_secured_put_tool,
     get_options_chain_tool,
 )
@@ -74,6 +76,102 @@ def test_optional_bool_coercion(
     assert _coerce_optional_bool(value) is expected
 
 
+@pytest.mark.parametrize(
+    (
+        "bid",
+        "ask",
+        "expected_mid",
+        "expected_spread",
+        "expected_spread_pct",
+        "expected_status",
+    ),
+    [
+        (1.95, 2.05, 2.0, 0.1, 0.05, "normal"),
+        (1.0, 3.0, 2.0, 2.0, 1.0, "wide"),
+        (2.1, 2.0, None, None, None, "crossed"),
+        (None, 2.0, None, None, None, "unavailable"),
+        (0.0, 2.0, None, None, None, "unavailable"),
+    ],
+)
+def test_calculate_quote_metrics(
+    bid: float | None,
+    ask: float | None,
+    expected_mid: float | None,
+    expected_spread: float | None,
+    expected_spread_pct: float | None,
+    expected_status: str,
+) -> None:
+    metrics = _calculate_quote_metrics(bid, ask)
+
+    if expected_mid is None:
+        assert metrics.mid_price is None
+        assert metrics.bid_ask_spread is None
+        assert metrics.bid_ask_spread_pct is None
+    else:
+        assert metrics.mid_price == pytest.approx(expected_mid)
+        assert metrics.bid_ask_spread == pytest.approx(expected_spread)
+        assert metrics.bid_ask_spread_pct == pytest.approx(
+            expected_spread_pct
+        )
+
+    assert metrics.quote_status == expected_status
+
+
+def test_prepare_option_contracts_filters_rows_and_adds_liquidity_columns() -> None:
+    option_df = pd.DataFrame(
+        {
+            "contractSymbol": [" P170 ", "", "P180", None, "P190"],
+            "strike": [170, 175, "invalid", 185, 0],
+        }
+    )
+
+    prepared = _prepare_option_contracts(
+        option_df,
+        require_contract_symbol=True,
+    )
+
+    assert prepared["contractSymbol"].tolist() == ["P170"]
+    assert prepared["strike"].tolist() == [170.0]
+    assert prepared["openInterest"].isna().all()
+    assert prepared["volume"].isna().all()
+
+
+def test_prepare_option_contracts_rejects_missing_required_column() -> None:
+    option_df = pd.DataFrame({"strike": [170.0]})
+
+    with pytest.raises(
+        ValueError,
+        match="missing required columns: contractSymbol",
+    ):
+        _prepare_option_contracts(
+            option_df,
+            require_contract_symbol=True,
+        )
+
+
+def test_get_options_chain_tool_rejects_all_invalid_contracts(mocker) -> None:
+    mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
+    mock_engine.return_value.get_option_expirations.return_value = ["2026-06-05"]
+    mock_engine.return_value.get_options_chain.return_value = {
+        "puts": pd.DataFrame(
+            {
+                "contractSymbol": ["", "P170", None],
+                "strike": [170, "invalid", 180],
+            }
+        ),
+        "calls": pd.DataFrame(),
+    }
+
+    with pytest.raises(ValueError, match="No valid put contracts found"):
+        get_options_chain_tool(
+            OptionsChainInput(
+                ticker="ORCL",
+                expiration="2026-06-05",
+                target_strike=170,
+            )
+        )
+
+
 def test_get_options_chain_tool_selects_contracts_near_target_strike(mocker) -> None:
     mock_engine = mocker.patch("tools.options_tools.MarketDataEngine")
     mock_engine.return_value.get_option_expirations.return_value = ["2026-06-05"]
@@ -110,6 +208,11 @@ def test_get_options_chain_tool_selects_contracts_near_target_strike(mocker) -> 
     assert result.contract_count == 2
     assert result.selection_basis == "nearest_to_target_strike:171.0"
     assert [contract.strike for contract in result.contracts] == [170.0, 180.0]
+    selected_contract = result.contracts[0]
+    assert selected_contract.mid_price == pytest.approx(2.0)
+    assert selected_contract.bid_ask_spread == pytest.approx(0.2)
+    assert selected_contract.bid_ask_spread_pct == pytest.approx(0.1)
+    assert selected_contract.quote_status == "normal"
 
 
 def test_get_options_chain_tool_preserves_unavailable_numeric_fields(mocker) -> None:
@@ -149,6 +252,10 @@ def test_get_options_chain_tool_preserves_unavailable_numeric_fields(mocker) -> 
     assert contract.open_interest is None
     assert contract.implied_volatility is None
     assert contract.in_the_money is None
+    assert contract.mid_price is None
+    assert contract.bid_ask_spread is None
+    assert contract.bid_ask_spread_pct is None
+    assert contract.quote_status == "unavailable"
 
 
 def test_analyze_cash_secured_put_with_explicit_premium(mocker) -> None:
