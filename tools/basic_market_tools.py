@@ -1,6 +1,11 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
-from tools.market_data import MarketDataEngine
+from tools.market_data import (
+    MarketDataEngine,
+    extract_latest_daily_close,
+)
 
 
 class CurrentPriceInput(BaseModel):
@@ -13,6 +18,8 @@ class CurrentPriceInput(BaseModel):
 class CurrentPriceOutput(BaseModel):
     ticker: str
     price: float
+    as_of: str
+    price_type: Literal["latest_daily_close"] = "latest_daily_close"
     currency: str = "USD"
     source: str = "yfinance"
 
@@ -31,17 +38,19 @@ def get_current_price_tool(args: CurrentPriceInput) -> CurrentPriceOutput:
         interval="1d",
     )
 
-    if price_history.empty:
-        raise ValueError(f"No price data found for ticker '{args.ticker}'.")
-
-    latest_close = float(price_history["Close"].iloc[-1])
+    snapshot = extract_latest_daily_close(
+        price_history,
+        args.ticker,
+    )
 
     return CurrentPriceOutput(
         ticker=args.ticker.upper(),
-        price=latest_close,
+        price=snapshot.price,
+        as_of=snapshot.as_of,
         currency="USD",
         source="yfinance",
     )
+
 
 class HistoricalVolatilityInput(BaseModel):
     ticker: str = Field(
@@ -61,6 +70,8 @@ class HistoricalVolatilityOutput(BaseModel):
     lookback_days: int
     annualized_volatility: float
     observation_count: int
+    as_of: str
+    price_data_type: Literal["daily_close"] = "daily_close"
     source: str = "yfinance"
 
 
@@ -75,8 +86,6 @@ def get_historical_volatility_tool(
     """
     engine = MarketDataEngine()
 
-    # Pull a slightly wider range than the requested lookback so we have enough
-    # rows after non-trading days and return calculation.
     period_days = max(args.lookback_days * 2, 30)
     period = f"{period_days}d"
 
@@ -86,10 +95,11 @@ def get_historical_volatility_tool(
         interval="1d",
     )
 
-    if price_history.empty:
-        raise ValueError(f"No price data found for ticker '{args.ticker}'.")
-
     recent_prices = price_history.tail(args.lookback_days).copy()
+    latest_snapshot = extract_latest_daily_close(
+        recent_prices,
+        args.ticker,
+    )
 
     if len(recent_prices) < 2:
         raise ValueError(
@@ -103,5 +113,6 @@ def get_historical_volatility_tool(
         lookback_days=args.lookback_days,
         annualized_volatility=volatility,
         observation_count=len(recent_prices),
+        as_of=latest_snapshot.as_of,
         source="yfinance",
     )
