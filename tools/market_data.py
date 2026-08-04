@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+MARKET_DATA_TIMEOUT_SECONDS = 10
+
 
 @dataclass(frozen=True)
 class DailyCloseSnapshot:
@@ -107,10 +109,6 @@ class MarketDataEngine:
             return {"ticker": ticker, "error": "Data unavailable"}
 
 
-    # --------------------------------------------------
-    # Historical Price Data
-    # --------------------------------------------------
-
     def get_price_history(
         self,
         ticker: str,
@@ -125,7 +123,8 @@ class MarketDataEngine:
         stock = yf.Ticker(ticker)
         df = stock.history(
             period=period,
-            interval=interval
+            interval=interval,
+            timeout=MARKET_DATA_TIMEOUT_SECONDS,
         )
         if df.empty:
             return pd.DataFrame()
@@ -163,9 +162,7 @@ class MarketDataEngine:
             "calls": calls,
             "puts": puts,
         }
-    # --------------------------------------------------
-    # Return Calculations
-    # --------------------------------------------------
+
 
     def compute_returns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -181,9 +178,6 @@ class MarketDataEngine:
 
         return df
 
-    # --------------------------------------------------
-    # Volatility
-    # --------------------------------------------------
 
     def compute_volatility(self, df: pd.DataFrame) -> float:
         """
@@ -197,10 +191,6 @@ class MarketDataEngine:
 
         return float(volatility)
 
-
-    # --------------------------------------------------
-    # Complete Data Pipeline
-    # --------------------------------------------------
 
     def get_full_stock_data(self, ticker: str) -> dict:
         """
