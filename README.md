@@ -29,44 +29,34 @@ The system can:
 
 ## Architecture
 
-```text
-Streamlit UI
-    |
-    | HTTP / SSE
-    v
-FastAPI Backend
-    |
-    | /analyze, /analyze/stream
-    | /compare, /compare/stream
-    | /history/{session_id}
-    | /metrics
-    v
-ReAct Agent
-    |
-    | Thought -> Tool Call -> Observation -> Final Answer
-    v
-Tool Registry
-    |
-    | Pydantic input/output schemas
-    v
-Financial Tools
-    |
-    | get_current_price
-    | get_historical_volatility
-    | get_options_chain
-    | analyze_cash_secured_put
-    v
-Market Data + Quant Calculations
+```mermaid
+flowchart TD
+    UI["Streamlit Demo UI"] -->|"HTTP + SSE"| API["FastAPI Backend"]
 
-Redis
-    | API rate limiting
-    | tool response caching
-    | session history
+    API -->|"POST /analyze<br/>POST /compare"| SERVICE["Service Layer"]
+    API -->|"GET /history/{session_id}<br/>GET /metrics"| OPS["History + Metrics APIs"]
 
-Observability
-    | trace_id propagation
-    | structured JSON logs
-    | request/tool metrics
+    SERVICE --> AGENT["ReAct Agent Loop"]
+    AGENT -->|"structured AgentStep"| REGISTRY["Tool Registry"]
+    REGISTRY -->|"Pydantic validation"| TOOLS["Financial Tools"]
+
+    TOOLS --> PRICE["get_current_price"]
+    TOOLS --> VOL["get_historical_volatility"]
+    TOOLS --> CHAIN["get_options_chain"]
+    TOOLS --> CSP["analyze_cash_secured_put"]
+
+    PRICE --> DATA["Market Data + Quant Calculations"]
+    VOL --> DATA
+    CHAIN --> DATA
+    CSP --> DATA
+
+    REDIS["Redis"] <--> API
+    REDIS <--> REGISTRY
+    REDIS <--> OPS
+
+    OBS["Trace IDs<br/>JSON logs<br/>Latency metrics"] <-.-> API
+    OBS <-.-> AGENT
+    OBS <-.-> REGISTRY
 ```
 
 The Streamlit frontend is a thin client. It does not run agent logic directly; it calls the FastAPI backend over HTTP and Server-Sent Events.
@@ -182,7 +172,8 @@ The project includes a JSONL benchmark set covering:
 
 - cash-secured put analysis
 - explicit strike preservation
-- explicit expiration preservation
+- explicit days-to-expiration window preservation
+- technical-indicator analysis
 - volatility questions
 - ticker comparison
 - invalid ticker handling
@@ -192,10 +183,14 @@ The project includes a JSONL benchmark set covering:
 
 The eval runner executes golden queries and checks:
 
-- expected tool usage
-- preservation of explicit user constraints
-- required answer concepts
-- forbidden behavior
+- successful agent completion
+- required tool calls, arguments, outcomes, and call counts
+- exact user-supplied answer literals
+- required answer concepts with accepted alternative phrasings
+
+Failed cases report unsatisfied tool contracts, missing answer literals,
+missing answer concepts, and agent or judge errors. LLM-as-judge scores are
+reported separately and do not change the deterministic pass/fail result.
 
 **4. LLM-as-Judge**
 
@@ -214,10 +209,11 @@ Eval runs can be saved to a local SQLite database and converted into Markdown re
 
 ### Running Evaluations
 
+
 Run deterministic tests:
 
 ```bash
-pytest
+python -m pytest
 ```
 
 Run golden evals with judge scoring and persistence:
