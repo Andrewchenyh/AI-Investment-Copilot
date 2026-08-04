@@ -4,9 +4,12 @@ from typing import Any
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from pydantic import ValidationError
 
 from agents.schemas import AgentStep, ToolObservation
+
+DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 30_000
 
 
 class AgentStepValidationError(RuntimeError):
@@ -20,6 +23,7 @@ class ReActAgent:
         model_id: str = "gemini-3.1-flash-lite",
         max_steps: int = 10,
         max_step_validation_retries: int = 1,
+        model_request_timeout_ms: int = DEFAULT_MODEL_REQUEST_TIMEOUT_MS,
     ):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -29,11 +33,20 @@ class ReActAgent:
         if max_step_validation_retries < 0:
             raise ValueError("max_step_validation_retries cannot be negative.")
 
-        self.client = genai.Client(api_key=api_key)
+        if model_request_timeout_ms <= 0:
+            raise ValueError("model_request_timeout_ms must be positive.")
+
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                timeout=model_request_timeout_ms,
+            ),
+        )
         self.model_id = model_id
         self.tool_registry = tool_registry
         self.max_steps = max_steps
         self.max_step_validation_retries = max_step_validation_retries
+        self.model_request_timeout_ms = model_request_timeout_ms
 
     def _build_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
         tool_descriptions = self.tool_registry.describe_tools()
