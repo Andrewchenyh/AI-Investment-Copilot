@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from apps.sse_client import SSEProtocolError, parse_sse_lines
+from apps.sse_client import (
+    SSEProtocolError,
+    parse_sse_lines,
+    require_terminal_event,
+    validate_event_payloads,
+)
 
 
 def test_parse_sse_lines_decodes_event() -> None:
@@ -107,3 +112,177 @@ def test_parse_sse_lines_rejects_non_object_payloads(
         match="payload must be a JSON object",
     ):
         list(parse_sse_lines(lines))
+
+
+def test_require_terminal_event_accepts_final_answer() -> None:
+    events = [
+        ("start", {"trace_id": "trace-123"}),
+        ("final_answer", {"answer": "Complete"}),
+    ]
+
+    validated_events = list(require_terminal_event(events))
+
+    assert validated_events == events
+
+
+def test_require_terminal_event_accepts_error() -> None:
+    events = [
+        ("start", {"trace_id": "trace-123"}),
+        ("error", {"message": "Analysis failed."}),
+    ]
+
+    validated_events = list(require_terminal_event(events))
+
+    assert validated_events == events
+
+
+def test_require_terminal_event_yields_before_detecting_incomplete_stream(
+) -> None:
+    events = [
+        ("start", {"trace_id": "trace-123"}),
+        ("thought", {"step": 1}),
+    ]
+    validated_events = require_terminal_event(events)
+
+    assert next(validated_events) == events[0]
+    assert next(validated_events) == events[1]
+
+    with pytest.raises(
+        SSEProtocolError,
+        match="ended without a terminal event",
+    ):
+        next(validated_events)
+
+
+def test_require_terminal_event_rejects_empty_stream() -> None:
+    with pytest.raises(
+        SSEProtocolError,
+        match="ended without a terminal event",
+    ):
+        list(require_terminal_event([]))
+
+
+@pytest.mark.parametrize(
+    ("event_name", "payload"),
+    [
+        ("start", {"trace_id": "trace-123"}),
+        (
+            "thought",
+            {
+                "trace_id": "trace-123",
+                "step": 1,
+                "thought": "Inspecting market data.",
+                "action_type": "tool_call",
+            },
+        ),
+        (
+            "tool_call",
+            {
+                "trace_id": "trace-123",
+                "tool_name": "get_current_price",
+                "tool_args_json": '{"ticker": "ORCL"}',
+            },
+        ),
+        (
+            "tool_result",
+            {
+                "trace_id": "trace-123",
+                "tool_name": "get_current_price",
+                "success": True,
+                "observation": {"price": 170.0},
+            },
+        ),
+        (
+            "final_answer",
+            {
+                "trace_id": "trace-123",
+                "answer": "Analysis complete.",
+                "trace": [],
+            },
+        ),
+        (
+            "error",
+            {
+                "trace_id": "trace-123",
+                "message": "Analysis failed.",
+            },
+        ),
+    ],
+)
+def test_validate_event_payloads_accepts_supported_events(
+    event_name: str,
+    payload: dict,
+) -> None:
+    events = [(event_name, payload)]
+
+    validated_events = list(validate_event_payloads(events))
+
+    assert validated_events == events
+
+
+def test_validate_event_payloads_rejects_missing_required_field() -> None:
+    events = [
+        (
+            "thought",
+            {
+                "trace_id": "trace-123",
+                "thought": "Inspecting market data.",
+                "action_type": "tool_call",
+            },
+        )
+    ]
+
+    with pytest.raises(
+        SSEProtocolError,
+        match="missing required field 'step'",
+    ):
+        list(validate_event_payloads(events))
+
+
+def test_validate_event_payloads_rejects_incorrect_field_type() -> None:
+    events = [
+        (
+            "final_answer",
+            {
+                "trace_id": "trace-123",
+                "answer": "Analysis complete.",
+                "trace": {},
+            },
+        )
+    ]
+
+    with pytest.raises(
+        SSEProtocolError,
+        match="field 'trace' must be list",
+    ):
+        list(validate_event_payloads(events))
+
+
+def test_validate_event_payloads_does_not_treat_bool_as_int() -> None:
+    events = [
+        (
+            "thought",
+            {
+                "trace_id": "trace-123",
+                "step": True,
+                "thought": "Inspecting market data.",
+                "action_type": "tool_call",
+            },
+        )
+    ]
+
+    with pytest.raises(
+        SSEProtocolError,
+        match="field 'step' must be int",
+    ):
+        list(validate_event_payloads(events))
+
+
+def test_validate_event_payloads_rejects_unsupported_event() -> None:
+    events = [("heartbeat", {"trace_id": "trace-123"})]
+
+    with pytest.raises(
+        SSEProtocolError,
+        match="unsupported SSE event 'heartbeat'",
+    ):
+        list(validate_event_payloads(events))
