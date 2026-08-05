@@ -1,6 +1,7 @@
 import pytest
 
 from agents.react_agent import (
+    DEFAULT_AGENT_RUNTIME_SECONDS,
     DEFAULT_MODEL_REQUEST_TIMEOUT_MS,
     ReActAgent,
 )
@@ -10,6 +11,7 @@ from agents.schemas import AgentStep, ToolCall
 def make_agent(step: AgentStep, max_steps: int = 1) -> ReActAgent:
     agent = object.__new__(ReActAgent)
     agent.max_steps = max_steps
+    agent.max_runtime_seconds = DEFAULT_AGENT_RUNTIME_SECONDS
     agent._get_validated_llm_step = (lambda user_query, trace: step)
     return agent
 
@@ -35,6 +37,7 @@ def test_agent_configures_default_model_request_timeout(
         DEFAULT_MODEL_REQUEST_TIMEOUT_MS
     )
     assert agent.model_request_timeout_ms == DEFAULT_MODEL_REQUEST_TIMEOUT_MS
+    assert agent.max_runtime_seconds == DEFAULT_AGENT_RUNTIME_SECONDS
 
 
 def test_agent_rejects_non_positive_model_request_timeout(
@@ -54,6 +57,106 @@ def test_agent_rejects_non_positive_model_request_timeout(
         )
 
     client_constructor.assert_not_called()
+
+
+@pytest.mark.parametrize("max_runtime_seconds", [0, -1, float("inf")])
+def test_agent_rejects_invalid_runtime_budget(
+    monkeypatch,
+    mocker,
+    max_runtime_seconds: float,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    client_constructor = mocker.patch("agents.react_agent.genai.Client")
+
+    with pytest.raises(
+        ValueError,
+        match="max_runtime_seconds must be finite and positive",
+    ):
+        ReActAgent(
+            tool_registry=object(),
+            max_runtime_seconds=max_runtime_seconds,
+        )
+
+    client_constructor.assert_not_called()
+
+
+def test_runtime_budget_can_expire_before_first_model_call(mocker) -> None:
+    agent = make_agent(
+        AgentStep(
+            thought="Finished.",
+            action_type="final_answer",
+            final_answer="Answer.",
+        )
+    )
+    get_step = mocker.Mock(wraps=agent._get_validated_llm_step)
+    agent._get_validated_llm_step = get_step
+    mocker.patch(
+        "agents.react_agent.time.monotonic",
+        side_effect=[0.0, DEFAULT_AGENT_RUNTIME_SECONDS],
+    )
+
+    events = list(agent.run_with_events("query", trace_id="trace-123"))
+
+    assert [event["event"] for event in events] == ["start", "error"]
+    assert events[0]["data"]["max_runtime_seconds"] == (
+        DEFAULT_AGENT_RUNTIME_SECONDS
+    )
+    assert "runtime limit" in events[-1]["data"]["message"]
+    assert events[-1]["data"]["trace"] == []
+    get_step.assert_not_called()
+
+
+def test_runtime_budget_prevents_tool_call_after_model_step(mocker) -> None:
+    agent = make_agent(
+        AgentStep(
+            thought="I need price data.",
+            action_type="tool_call",
+            tool_call=ToolCall(
+                tool_name="get_current_price",
+                tool_args_json='{"ticker": "ORCL"}',
+            ),
+        )
+    )
+    execute_tool = mocker.patch.object(agent, "_execute_tool")
+    mocker.patch(
+        "agents.react_agent.time.monotonic",
+        side_effect=[0.0, 0.0, DEFAULT_AGENT_RUNTIME_SECONDS],
+    )
+
+    events = list(agent.run_with_events("query", trace_id="trace-123"))
+
+    assert [event["event"] for event in events] == [
+        "start",
+        "thought",
+        "error",
+    ]
+    assert events[-1]["data"]["trace"][0]["action_type"] == "tool_call"
+    execute_tool.assert_not_called()
+
+
+def test_final_answer_is_accepted_after_soft_runtime_deadline(mocker) -> None:
+    final_step = AgentStep(
+        thought="Finished.",
+        action_type="final_answer",
+        final_answer="Grounded answer.",
+    )
+    agent = make_agent(final_step)
+    monotonic = mocker.patch(
+        "agents.react_agent.time.monotonic",
+        side_effect=[0.0, 0.0, DEFAULT_AGENT_RUNTIME_SECONDS],
+    )
+
+    def finish_after_deadline(user_query, trace):
+        monotonic()
+        return final_step
+
+    agent._get_validated_llm_step = finish_after_deadline
+
+    events = list(agent.run_with_events("query", trace_id="trace-123"))
+
+    assert events[-1]["event"] == "final_answer"
+    assert events[-1]["data"]["status"] == "success"
+    assert events[-1]["data"]["answer"] == "Grounded answer."
 
 
 def test_runtime_guard_rejects_empty_final_answer() -> None:
