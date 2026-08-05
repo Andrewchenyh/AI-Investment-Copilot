@@ -1,5 +1,7 @@
 import json
+import math
 import os
+import time
 from typing import Any
 
 from dotenv import load_dotenv
@@ -10,6 +12,7 @@ from pydantic import ValidationError
 from agents.schemas import AgentStep, ToolObservation
 
 DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 30_000
+DEFAULT_AGENT_RUNTIME_SECONDS = 120.0
 
 
 class AgentStepValidationError(RuntimeError):
@@ -24,6 +27,7 @@ class ReActAgent:
         max_steps: int = 10,
         max_step_validation_retries: int = 1,
         model_request_timeout_ms: int = DEFAULT_MODEL_REQUEST_TIMEOUT_MS,
+        max_runtime_seconds: float = DEFAULT_AGENT_RUNTIME_SECONDS,
     ):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -36,6 +40,14 @@ class ReActAgent:
         if model_request_timeout_ms <= 0:
             raise ValueError("model_request_timeout_ms must be positive.")
 
+        if (
+            not math.isfinite(max_runtime_seconds)
+            or max_runtime_seconds <= 0
+        ):
+            raise ValueError(
+                "max_runtime_seconds must be finite and positive."
+            )
+
         self.client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
@@ -47,6 +59,7 @@ class ReActAgent:
         self.max_steps = max_steps
         self.max_step_validation_retries = max_step_validation_retries
         self.model_request_timeout_ms = model_request_timeout_ms
+        self.max_runtime_seconds = max_runtime_seconds
 
     def _build_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
         tool_descriptions = self.tool_registry.describe_tools()
@@ -86,6 +99,32 @@ class ReActAgent:
                 - Final answers must cite the relevant observed numbers.
                 - tool_args_json must be a valid JSON object encoded as a string.
                 """
+
+    def _runtime_budget_exhausted(
+        self,
+        started_at: float,
+    ) -> bool:
+        elapsed_seconds = time.monotonic() - started_at
+        return elapsed_seconds >= self.max_runtime_seconds
+
+    def _runtime_limit_event(
+        self,
+        *,
+        trace_id: str,
+        trace: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "event": "error",
+            "data": {
+                "status": "error",
+                "trace_id": trace_id,
+                "message": (
+                    "The analysis reached its runtime limit before "
+                    "completion. Please retry the request."
+                ),
+                "trace": trace,
+            },
+        }
 
     def _llm_step(
         self,
@@ -186,6 +225,7 @@ class ReActAgent:
 
     def run_with_events(self, user_query: str, trace_id: str):
         trace: list[dict[str, Any]] = []
+        started_at = time.monotonic()
 
         yield {
             "event": "start",
@@ -193,10 +233,17 @@ class ReActAgent:
                 "trace_id": trace_id,
                 "query": user_query,
                 "max_steps": self.max_steps,
+                "max_runtime_seconds": self.max_runtime_seconds,
             },
         }
 
         for step_number in range(1, self.max_steps + 1):
+            if self._runtime_budget_exhausted(started_at):
+                yield self._runtime_limit_event(
+                    trace_id=trace_id,
+                    trace=trace,
+                )
+                return
             try:
                 agent_step = self._get_validated_llm_step(
                     user_query=user_query,
@@ -276,6 +323,13 @@ class ReActAgent:
                     "event": "error",
                     "data": error_payload,
                 }
+                return
+
+            if self._runtime_budget_exhausted(started_at):
+                yield self._runtime_limit_event(
+                    trace_id=trace_id,
+                    trace=trace,
+                )
                 return
 
             yield {
