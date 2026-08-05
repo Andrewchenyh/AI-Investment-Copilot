@@ -4,9 +4,12 @@ import requests
 import streamlit as st
 from dotenv import load_dotenv
 
+from apps.activity_timeline import describe_activity_event
 from apps.sse_client import (
     SSEProtocolError,
     parse_sse_lines,
+    require_terminal_event,
+    validate_event_payloads,
 )
 
 
@@ -97,11 +100,13 @@ with main_col:
     grounded_placeholder = st.empty()
 
 with debug_col:
-    st.subheader("Debug Trace")
+    st.subheader("Analysis Activity")
     trace_id_placeholder = st.empty()
-    thoughts_placeholder = st.empty()
-    tools_placeholder = st.empty()
-    trace_expander = st.expander("Raw Trace", expanded=False)
+    activity_placeholder = st.empty()
+    trace_expander = st.expander(
+        "Developer Trace",
+        expanded=False,
+    )
 
 
 def stream_sse_events(query: str, session_id: str | None = None):
@@ -114,8 +119,12 @@ def stream_sse_events(query: str, session_id: str | None = None):
     )
     response.raise_for_status()
 
-    yield from parse_sse_lines(
-        response.iter_lines(decode_unicode=True)
+    yield from require_terminal_event(
+        validate_event_payloads(
+            parse_sse_lines(
+                response.iter_lines(decode_unicode=True)
+            )
+        )
     )
 
 
@@ -190,54 +199,17 @@ def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
     return grounded
 
 
-def summarize_tool_result(event_data: dict) -> str:
-    tool_name = event_data.get("tool_name")
-    observation = event_data.get("observation", {})
-
-    if not event_data.get("success"):
-        return f"`{tool_name}` failed: {event_data.get('error')}"
-
-    if tool_name == "get_current_price":
-        return (
-            f"`get_current_price`: {observation.get('ticker')} "
-            f"${observation.get('price', 0):,.2f}"
-        )
-
-    if tool_name == "get_historical_volatility":
-        return (
-            "`get_historical_volatility`: "
-            f"{observation.get('annualized_volatility', 0) * 100:.2f}%"
-        )
-
-    if tool_name == "get_options_chain":
-        return (
-            f"`get_options_chain`: {observation.get('contract_count')} contracts, "
-            f"exp {observation.get('expiration')}"
-        )
-
-    if tool_name == "analyze_cash_secured_put":
-        return (
-            "`analyze_cash_secured_put`: "
-            f"strike ${observation.get('strike', 0):,.2f}, "
-            f"premium ${observation.get('premium', 0):,.2f}"
-        )
-
-    return f"`{tool_name}` completed."
-
-
 status_metric.metric("Status", "Idle")
 trace_metric.metric("Trace", "None")
 tool_metric.metric("Tools", "0")
 answer_placeholder.info("Choose a demo query and run the agent.")
 grounded_placeholder.caption("Grounded numbers will appear after tool execution.")
 trace_id_placeholder.caption("Trace ID will appear here.")
-thoughts_placeholder.caption("Live reasoning steps will appear here.")
-tools_placeholder.caption("Tool calls and results will appear here.")
+activity_placeholder.caption("Agent actions and tool results will appear here.")
 
 if run_button and user_query:
     final_trace: list[dict] = []
-    thought_lines: list[str] = []
-    tool_lines: list[str] = []
+    activity_lines: list[str] = []
     latest_trace_id = None
     tool_count = 0
 
@@ -247,8 +219,7 @@ if run_button and user_query:
     answer_placeholder.info("Streaming analysis from the FastAPI agent...")
     grounded_placeholder.empty()
     trace_id_placeholder.caption("Trace ID: pending")
-    thoughts_placeholder.empty()
-    tools_placeholder.empty()
+    activity_placeholder.empty()
 
     try:
         for event_name, event_data in stream_sse_events(
@@ -257,42 +228,31 @@ if run_button and user_query:
         ):
             latest_trace_id = event_data.get("trace_id", latest_trace_id)
 
+            activity_message = describe_activity_event(
+                event_name,
+                event_data,
+            )
+
+            if activity_message is not None:
+                activity_lines.append(activity_message)
+                activity_placeholder.markdown(
+                    "\n".join(
+                        f"- {line}"
+                        for line in activity_lines
+                    )
+                )
+
             if latest_trace_id:
                 trace_id_placeholder.code(latest_trace_id)
                 trace_metric.metric("Trace", latest_trace_id[:8])
 
-            if event_name == "start":
-                thought_lines.append("Started analysis.")
-                thoughts_placeholder.markdown(
-                    "**Live Thoughts**\n\n" + "\n\n".join(thought_lines)
-                )
-
-            elif event_name == "thought":
+            if event_name == "thought":
                 final_trace.append(event_data)
-                thought_lines.append(
-                    f"Step {event_data['step']}: {event_data['thought']}"
-                )
-                thoughts_placeholder.markdown(
-                    "**Live Thoughts**\n\n" + "\n\n".join(thought_lines)
-                )
-
-            elif event_name == "tool_call":
-                tool_lines.append(
-                    f"Calling `{event_data['tool_name']}` with `{event_data['tool_args_json']}`"
-                )
-                tools_placeholder.markdown(
-                    "**Tool Calls**\n\n" + "\n\n".join(tool_lines)
-                )
 
             elif event_name == "tool_result":
                 final_trace.append(event_data)
                 tool_count += 1
                 tool_metric.metric("Tools", str(tool_count))
-
-                tool_lines.append(summarize_tool_result(event_data))
-                tools_placeholder.markdown(
-                    "**Tool Calls**\n\n" + "\n\n".join(tool_lines)
-                )
 
                 grounded_numbers = extract_grounded_numbers(final_trace)
                 if grounded_numbers:
@@ -317,9 +277,7 @@ if run_button and user_query:
 
             elif event_name == "error":
                 status_metric.metric("Status", "Error")
-                answer_placeholder.error(
-                    event_data.get("message", "Unknown streaming error.")
-                )
+                answer_placeholder.error(event_data["message"])
                 final_trace = event_data.get("trace", final_trace)
 
         with trace_expander:
