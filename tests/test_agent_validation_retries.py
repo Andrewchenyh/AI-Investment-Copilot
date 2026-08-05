@@ -1,6 +1,7 @@
 import pytest
 
 from agents.react_agent import (
+    DEFAULT_AGENT_RUNTIME_SECONDS,
     AgentStepValidationError,
     ReActAgent,
 )
@@ -22,6 +23,7 @@ def test_invalid_step_retries_once_then_succeeds() -> None:
     agent = object.__new__(ReActAgent)
     agent.max_steps = 1
     agent.max_step_validation_retries = 1
+    agent.max_runtime_seconds = DEFAULT_AGENT_RUNTIME_SECONDS
 
     retry_flags: list[bool] = []
 
@@ -64,6 +66,7 @@ def test_repeated_invalid_steps_emit_controlled_error() -> None:
     agent = object.__new__(ReActAgent)
     agent.max_steps = 3
     agent.max_step_validation_retries = 1
+    agent.max_runtime_seconds = DEFAULT_AGENT_RUNTIME_SECONDS
 
     retry_flags: list[bool] = []
 
