@@ -1,9 +1,13 @@
-import json
 import os
 
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+
+from apps.sse_client import (
+    SSEProtocolError,
+    parse_sse_lines,
+)
 
 
 load_dotenv()
@@ -110,28 +114,9 @@ def stream_sse_events(query: str, session_id: str | None = None):
     )
     response.raise_for_status()
 
-    current_event = None
-    current_data_lines: list[str] = []
-
-    for raw_line in response.iter_lines(decode_unicode=True):
-        if raw_line is None:
-            continue
-
-        line = raw_line.strip()
-
-        if not line:
-            if current_event and current_data_lines:
-                data_str = "\n".join(current_data_lines)
-                yield current_event, json.loads(data_str)
-
-            current_event = None
-            current_data_lines = []
-            continue
-
-        if line.startswith("event:"):
-            current_event = line.removeprefix("event:").strip()
-        elif line.startswith("data:"):
-            current_data_lines.append(line.removeprefix("data:").strip())
+    yield from parse_sse_lines(
+        response.iter_lines(decode_unicode=True)
+    )
 
 
 def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
@@ -340,6 +325,22 @@ if run_button and user_query:
         with trace_expander:
             st.json(final_trace)
 
-    except requests.RequestException as exc:
+    except requests.Timeout:
         status_metric.metric("Status", "Error")
-        answer_placeholder.error(f"Request failed: {exc}")
+        answer_placeholder.error(
+            "The analysis request timed out. Please try again."
+        )
+
+    except requests.RequestException:
+        status_metric.metric("Status", "Error")
+        answer_placeholder.error(
+            "The analysis service is currently unavailable. "
+            "Please try again."
+        )
+
+    except SSEProtocolError:
+        status_metric.metric("Status", "Error")
+        answer_placeholder.error(
+            "The analysis stream returned invalid data. "
+            "Please retry the request."
+        )
