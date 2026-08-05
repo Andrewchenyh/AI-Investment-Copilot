@@ -6,6 +6,50 @@ from typing import Any
 SSEEvent = tuple[str, dict[str, Any]]
 
 
+TERMINAL_EVENT_NAMES = frozenset(
+    {
+        "final_answer",
+        "error",
+    }
+)
+
+
+_EVENT_REQUIRED_FIELD_TYPES: dict[
+    str,
+    dict[str, type[Any]],
+] = {
+    "start": {
+        "trace_id": str,
+    },
+    "thought": {
+        "trace_id": str,
+        "step": int,
+        "thought": str,
+        "action_type": str,
+    },
+    "tool_call": {
+        "trace_id": str,
+        "tool_name": str,
+        "tool_args_json": str,
+    },
+    "tool_result": {
+        "trace_id": str,
+        "tool_name": str,
+        "success": bool,
+        "observation": dict,
+    },
+    "final_answer": {
+        "trace_id": str,
+        "answer": str,
+        "trace": list,
+    },
+    "error": {
+        "trace_id": str,
+        "message": str,
+    },
+}
+
+
 class SSEProtocolError(ValueError):
     """Raised when an SSE event contains malformed or unexpected data."""
 
@@ -84,3 +128,50 @@ def parse_sse_lines(
     )
     if decoded_event is not None:
         yield decoded_event
+
+
+def validate_event_payloads(
+    events: Iterable[SSEEvent],
+) -> Iterator[SSEEvent]:
+    for event_name, payload in events:
+        required_fields = _EVENT_REQUIRED_FIELD_TYPES.get(
+            event_name
+        )
+
+        if required_fields is None:
+            raise SSEProtocolError(
+                f"Received unsupported SSE event '{event_name}'."
+            )
+
+        for field_name, expected_type in required_fields.items():
+            if field_name not in payload:
+                raise SSEProtocolError(
+                    f"Event '{event_name}' is missing required "
+                    f"field '{field_name}'."
+                )
+
+            value = payload[field_name]
+            if type(value) is not expected_type:
+                raise SSEProtocolError(
+                    f"Event '{event_name}' field '{field_name}' "
+                    f"must be {expected_type.__name__}."
+                )
+
+        yield event_name, payload
+
+
+def require_terminal_event(
+    events: Iterable[SSEEvent],
+) -> Iterator[SSEEvent]:
+    terminal_event_seen = False
+
+    for event_name, payload in events:
+        if event_name in TERMINAL_EVENT_NAMES:
+            terminal_event_seen = True
+
+        yield event_name, payload
+
+    if not terminal_event_seen:
+        raise SSEProtocolError(
+            "The SSE stream ended without a terminal event."
+        )
