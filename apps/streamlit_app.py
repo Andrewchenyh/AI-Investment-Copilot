@@ -11,7 +11,7 @@ from apps.sse_client import (
     require_terminal_event,
     validate_event_payloads,
 )
-
+from apps.grounded_evidence import build_grounded_evidence
 
 load_dotenv()
 
@@ -96,7 +96,7 @@ with main_col:
     st.subheader("Answer")
     answer_placeholder = st.empty()
 
-    st.subheader("Grounded Numbers")
+    st.subheader("Grounded Evidence")
     grounded_placeholder = st.empty()
 
 with debug_col:
@@ -128,82 +128,11 @@ def stream_sse_events(query: str, session_id: str | None = None):
     )
 
 
-def extract_grounded_numbers(trace: list[dict]) -> list[dict]:
-    grounded = []
-
-    for item in trace:
-        observation = item.get("observation")
-        tool_name = item.get("tool_name")
-
-        if not isinstance(observation, dict):
-            continue
-
-        if tool_name == "get_historical_volatility":
-            grounded.append(
-                {
-                    "Metric": "Historical volatility",
-                    "Value": f"{observation.get('annualized_volatility', 0) * 100:.2f}%",
-                    "Source": tool_name,
-                }
-            )
-
-        if tool_name == "get_current_price":
-            grounded.append(
-                {
-                    "Metric": f"{observation.get('ticker', '')} price",
-                    "Value": f"${observation.get('price', 0):,.2f}",
-                    "Source": tool_name,
-                }
-            )
-
-        if tool_name == "get_options_chain":
-            grounded.append(
-                {
-                    "Metric": "Options expiration",
-                    "Value": str(observation.get("expiration", "")),
-                    "Source": tool_name,
-                }
-            )
-
-        if tool_name == "analyze_cash_secured_put":
-            grounded.extend(
-                [
-                    {
-                        "Metric": "Strike",
-                        "Value": f"${observation.get('strike', 0):,.2f}",
-                        "Source": tool_name,
-                    },
-                    {
-                        "Metric": "Premium",
-                        "Value": f"${observation.get('premium', 0):,.2f}",
-                        "Source": tool_name,
-                    },
-                    {
-                        "Metric": "Break-even",
-                        "Value": f"${observation.get('break_even_price', 0):,.2f}",
-                        "Source": tool_name,
-                    },
-                    {
-                        "Metric": "Annualized return",
-                        "Value": f"{observation.get('annualized_return', 0) * 100:.2f}%",
-                        "Source": tool_name,
-                    },
-                    {
-                        "Metric": "Cash required",
-                        "Value": f"${observation.get('cash_required_dollars', 0):,.0f}",
-                        "Source": tool_name,
-                    },
-                ]
-            )
-
-    return grounded
-
-
 status_metric.metric("Status", "Idle")
 trace_metric.metric("Trace", "None")
 tool_metric.metric("Tools", "0")
 answer_placeholder.info("Choose a demo query and run the agent.")
-grounded_placeholder.caption("Grounded numbers will appear after tool execution.")
+grounded_placeholder.caption("Financial evidence and provenance will appear after tool execution.")
 trace_id_placeholder.caption("Trace ID will appear here.")
 activity_placeholder.caption("Agent actions and tool results will appear here.")
 
@@ -254,10 +183,10 @@ if run_button and user_query:
                 tool_count += 1
                 tool_metric.metric("Tools", str(tool_count))
 
-                grounded_numbers = extract_grounded_numbers(final_trace)
-                if grounded_numbers:
+                grounded_evidence = build_grounded_evidence(final_trace)
+                if grounded_evidence:
                     grounded_placeholder.dataframe(
-                        grounded_numbers,
+                        grounded_evidence,
                         use_container_width=True,
                         hide_index=True,
                     )
@@ -267,10 +196,11 @@ if run_button and user_query:
                 status_metric.metric("Status", "Complete")
                 answer_placeholder.success(event_data["answer"])
 
-                grounded_numbers = extract_grounded_numbers(final_trace)
-                if grounded_numbers:
+
+                grounded_evidence = build_grounded_evidence(final_trace)
+                if grounded_evidence:
                     grounded_placeholder.dataframe(
-                        grounded_numbers,
+                        grounded_evidence,
                         use_container_width=True,
                         hide_index=True,
                     )
