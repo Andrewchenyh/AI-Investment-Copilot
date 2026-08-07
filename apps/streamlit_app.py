@@ -5,13 +5,13 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from apps.activity_timeline import describe_activity_event
+from apps.grounded_evidence import build_grounded_evidence
 from apps.sse_client import (
     SSEProtocolError,
     parse_sse_lines,
     require_terminal_event,
     validate_event_payloads,
 )
-from apps.grounded_evidence import build_grounded_evidence
 
 load_dotenv()
 
@@ -57,6 +57,7 @@ st.title("AI Investment Copilot")
 st.caption("A tool-using investment research agent with live trace visibility.")
 
 PRESET_QUERIES = {
+    "Technical indicators: AAPL": ("Analyze AAPL using RSI 14 and 50-day moving average."),
     "Cash-secured put: ORCL": "Is it a good time to write a cash-secured put on ORCL?",
     "Explicit strike: ORCL $170 put": "Is it a good time to write a $170 cash-secured put on ORCL?",
     "Volatility: ORCL": "What is ORCL recent historical volatility?",
@@ -77,7 +78,11 @@ with st.sidebar:
     )
 
     session_id = st.text_input("Session ID", value="demo-session")
-    run_button = st.button("Run Analysis", type="primary", use_container_width=True)
+    run_button = st.button(
+        "Run Analysis",
+        type="primary",
+        use_container_width=True,
+    )
 
     st.markdown(
         '<p class="small-muted">Research assistant only. Not financial advice.</p>',
@@ -132,7 +137,9 @@ status_metric.metric("Status", "Idle")
 trace_metric.metric("Trace", "None")
 tool_metric.metric("Tools", "0")
 answer_placeholder.info("Choose a demo query and run the agent.")
-grounded_placeholder.caption("Financial evidence and provenance will appear after tool execution.")
+grounded_placeholder.caption(
+    "Financial evidence and provenance will appear after tool execution."
+)
 trace_id_placeholder.caption("Trace ID will appear here.")
 activity_placeholder.caption("Agent actions and tool results will appear here.")
 
@@ -195,7 +202,6 @@ if run_button and user_query:
                 final_trace = event_data["trace"]
                 status_metric.metric("Status", "Complete")
                 answer_placeholder.success(event_data["answer"])
-
 
                 grounded_evidence = build_grounded_evidence(final_trace)
                 if grounded_evidence:
