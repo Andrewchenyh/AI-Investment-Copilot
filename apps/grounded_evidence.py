@@ -35,6 +35,14 @@ def _format_percent(value: Any) -> str:
     return f"{number * 100:.2f}%"
 
 
+def _format_number(value: Any) -> str:
+    number = _finite_number(value)
+    if number is None:
+        return "Unavailable"
+
+    return f"{number:,.2f}"
+
+
 def _humanize(value: Any) -> str:
     if not isinstance(value, str) or not value:
         return "Unavailable"
@@ -83,6 +91,78 @@ def build_grounded_evidence(
                         f"{_humanize(observation.get('price_type'))}"
                     ),
                 )
+            )
+
+        elif tool_name == "analyze_technical_indicators":
+            ticker = observation.get("ticker", "")
+
+            moving_averages = observation.get("moving_averages")
+            if not isinstance(moving_averages, dict):
+                moving_averages = {}
+
+            macd = observation.get("macd")
+            if not isinstance(macd, dict):
+                macd = {}
+
+            bollinger_bands = observation.get("bollinger_bands")
+            if not isinstance(bollinger_bands, dict):
+                bollinger_bands = {}
+
+            evidence = (
+                f"As of {observation.get('as_of', 'Unavailable')} · "
+                f"{_humanize(observation.get('lookback_period'))} lookback · "
+                f"{_humanize(observation.get('interval'))} bars · "
+                f"{source}"
+            )
+
+            rows.extend(
+                [
+                    _row(
+                        f"{ticker} close",
+                        _format_number(observation.get("close")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} RSI (14)",
+                        _format_number(observation.get("rsi_14")),
+                        "0–100 momentum scale · " + evidence,
+                    ),
+                    _row(
+                        f"{ticker} SMA (20)",
+                        _format_number(moving_averages.get("sma_20")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} SMA (50)",
+                        _format_number(moving_averages.get("sma_50")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} EMA (20)",
+                        _format_number(moving_averages.get("ema_20")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} MACD histogram",
+                        _format_number(macd.get("histogram")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} Bollinger lower",
+                        _format_number(bollinger_bands.get("lower")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} Bollinger middle",
+                        _format_number(bollinger_bands.get("middle")),
+                        evidence,
+                    ),
+                    _row(
+                        f"{ticker} Bollinger upper",
+                        _format_number(bollinger_bands.get("upper")),
+                        evidence,
+                    ),
+                ]
             )
 
         elif tool_name == "get_historical_volatility":
