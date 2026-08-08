@@ -9,6 +9,10 @@ from google import genai
 from google.genai import types
 from pydantic import ValidationError
 
+from agents.query_constraints import (
+    enforce_explicit_csp_strike,
+    extract_explicit_csp_strike,
+)
 from agents.schemas import AgentStep, ToolObservation
 
 DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 30_000
@@ -63,7 +67,9 @@ class ReActAgent:
 
     def _build_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
         tool_descriptions = self.tool_registry.describe_tools()
-
+        explicit_csp_strike = (
+            extract_explicit_csp_strike(user_query)
+        )
         return f"""
                 You are an investment copilot using a ReAct workflow.
 
@@ -77,6 +83,9 @@ class ReActAgent:
 
                 User query:
                 {user_query}
+
+                Deterministically extracted constraints:
+                - required_csp_strike: {explicit_csp_strike}
 
                 Trace so far:
                 {json.dumps(trace, indent=2)}
@@ -98,6 +107,10 @@ class ReActAgent:
                 - If you have enough evidence, choose final_answer.
                 - Final answers must cite the relevant observed numbers.
                 - tool_args_json must be a valid JSON object encoded as a string.
+                - Treat deterministically extracted constraints as immutable.
+                - When required_csp_strike is present, pass it as target_strike to get_options_chain and as strike to analyze_cash_secured_put.
+                - Never silently substitute a different strike for an explicitly requested strike.
+                - get_options_chain returns a filtered sample. Do not describe the sample's lowest or highest returned strike as the lowest or highest strike in the complete options chain.
                 """
 
     def _runtime_budget_exhausted(
@@ -226,7 +239,9 @@ class ReActAgent:
     def run_with_events(self, user_query: str, trace_id: str):
         trace: list[dict[str, Any]] = []
         started_at = time.monotonic()
-
+        explicit_csp_strike = (
+            extract_explicit_csp_strike(user_query)
+        )
         yield {
             "event": "start",
             "data": {
@@ -359,6 +374,12 @@ class ReActAgent:
                     "data": error_observation,
                 }
                 continue
+
+            tool_args = enforce_explicit_csp_strike(
+                tool_name=agent_step.tool_call.tool_name,
+                tool_args=tool_args,
+                explicit_strike=explicit_csp_strike,
+            )
 
             observation = self._execute_tool(
                 tool_name=agent_step.tool_call.tool_name,
