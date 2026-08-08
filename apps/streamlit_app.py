@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import requests
 import streamlit as st
@@ -17,6 +18,11 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 API_KEY = os.getenv("COPILOT_API_KEY", "")
+STYLE_PATH = (
+    Path(__file__).resolve().parent
+    / "assets"
+    / "styles.css"
+)
 
 st.set_page_config(
     page_title="AI Investment Copilot",
@@ -25,59 +31,7 @@ st.set_page_config(
 )
 
 st.markdown(
-    """
-    <style>
-    .block-container {
-        padding-top: 4rem;
-        padding-bottom: 2rem;
-        max-width: 1400px;
-    }
-
-    div[data-testid="stSidebar"] {
-        background-color: #f7f8fa;
-    }
-
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e6e8eb;
-        padding: 0.75rem;
-        border-radius: 8px;
-    }
-
-    .eyebrow {
-        color: #0f766e;
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        margin-bottom: 0.35rem;
-    }
-
-    .hero-copy {
-        color: #5f6874;
-        font-size: 1.08rem;
-        line-height: 1.6;
-        max-width: 780px;
-        margin-bottom: 1rem;
-    }
-
-    .capability-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-bottom: 1.75rem;
-    }
-
-    .capability-chip {
-        background: #ecfdf5;
-        border: 1px solid #a7f3d0;
-        border-radius: 999px;
-        color: #065f46;
-        font-size: 0.84rem;
-        font-weight: 600;
-        padding: 0.35rem 0.7rem;
-    }
-    </style>
-    """,
+    f"<style>{STYLE_PATH.read_text(encoding='utf-8')}</style>",
     unsafe_allow_html=True,
 )
 
@@ -85,6 +39,7 @@ st.markdown(
     '<p class="eyebrow">AGENTIC INVESTMENT RESEARCH</p>',
     unsafe_allow_html=True,
 )
+
 st.title("AI Investment Copilot")
 st.markdown(
     """
@@ -151,29 +106,36 @@ with st.sidebar:
         "Research assistance only—not financial advice."
     )
 
-main_col, debug_col = st.columns([0.62, 0.38], gap="large")
+st.subheader("Run Summary")
+metric_col1, metric_col2, metric_col3 = st.columns(3)
+
+status_metric = metric_col1.empty()
+evidence_metric = metric_col2.empty()
+tool_metric = metric_col3.empty()
+
+main_col, activity_col = st.columns(
+    [0.65, 0.35],
+    gap="large",
+)
 
 with main_col:
-    st.subheader("Run Summary")
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-    status_metric = metric_col1.empty()
-    evidence_metric = metric_col2.empty()
-    tool_metric = metric_col3.empty()
+    with st.container(border=True):
+        st.subheader("Research Brief")
+        answer_placeholder = st.empty()
 
-    st.subheader("Answer")
-    answer_placeholder = st.empty()
+    with st.container(border=True):
+        st.subheader("Grounded Evidence")
+        grounded_placeholder = st.empty()
 
-    st.subheader("Grounded Evidence")
-    grounded_placeholder = st.empty()
-
-with debug_col:
-    st.subheader("Analysis Activity")
-    trace_id_placeholder = st.empty()
-    activity_placeholder = st.empty()
-    trace_expander = st.expander(
-        "Developer Trace",
-        expanded=False,
-    )
+with activity_col:
+    with st.container(border=True):
+        st.subheader("Analysis Activity")
+        trace_id_placeholder = st.empty()
+        activity_placeholder = st.empty()
+        trace_expander = st.expander(
+            "Developer Trace",
+            expanded=False,
+        )
 
 
 def stream_sse_events(query: str, session_id: str | None = None):
