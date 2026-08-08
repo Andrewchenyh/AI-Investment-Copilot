@@ -28,7 +28,7 @@ st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 2rem;
+        padding-top: 4rem;
         padding-bottom: 2rem;
         max-width: 1400px;
     }
@@ -44,30 +44,85 @@ st.markdown(
         border-radius: 8px;
     }
 
-    .small-muted {
-        color: #687076;
-        font-size: 0.9rem;
+    .eyebrow {
+        color: #0f766e;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        margin-bottom: 0.35rem;
+    }
+
+    .hero-copy {
+        color: #5f6874;
+        font-size: 1.08rem;
+        line-height: 1.6;
+        max-width: 780px;
+        margin-bottom: 1rem;
+    }
+
+    .capability-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1.75rem;
+    }
+
+    .capability-chip {
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        border-radius: 999px;
+        color: #065f46;
+        font-size: 0.84rem;
+        font-weight: 600;
+        padding: 0.35rem 0.7rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+st.markdown(
+    '<p class="eyebrow">AGENTIC INVESTMENT RESEARCH</p>',
+    unsafe_allow_html=True,
+)
 st.title("AI Investment Copilot")
-st.caption("A tool-using investment research agent with live trace visibility.")
+st.markdown(
+    """
+    <p class="hero-copy">
+        An evidence-grounded research agent that selects financial tools,
+        evaluates market and options data, and streams every observable
+        action behind its answer.
+    </p>
+    <div class="capability-row">
+        <span class="capability-chip">Tool-using ReAct agent</span>
+        <span class="capability-chip">Market-data provenance</span>
+        <span class="capability-chip">Quote-quality safeguards</span>
+        <span class="capability-chip">Streaming activity trace</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 PRESET_QUERIES = {
-    "Technical indicators: AAPL": ("Analyze AAPL using RSI 14 and 50-day moving average."),
-    "Cash-secured put: ORCL": "Is it a good time to write a cash-secured put on ORCL?",
-    "Explicit strike: ORCL $170 put": "Is it a good time to write a $170 cash-secured put on ORCL?",
-    "Volatility: ORCL": "What is ORCL recent historical volatility?",
+    "Cash-secured put: ORCL": (
+        "Is it a good time to write a cash-secured put on ORCL?"
+    ),
+    "Explicit strike: ORCL $170 put": (
+        "Is it a good time to write a $170 cash-secured put on ORCL?"
+    ),
+    "Technical indicators: AAPL": (
+        "Analyze AAPL using RSI 14 and 50-day moving average."
+    ),
+    "Volatility: ORCL": (
+        "What is ORCL recent historical volatility?"
+    ),
 }
 
 with st.sidebar:
-    st.header("Analysis")
+    st.header("Try the Copilot")
 
     preset_label = st.selectbox(
-        "Demo query",
+        "Demo scenario",
         options=list(PRESET_QUERIES.keys()),
     )
 
@@ -77,16 +132,23 @@ with st.sidebar:
         height=120,
     )
 
-    session_id = st.text_input("Session ID", value="demo-session")
     run_button = st.button(
         "Run Analysis",
         type="primary",
         use_container_width=True,
     )
 
-    st.markdown(
-        '<p class="small-muted">Research assistant only. Not financial advice.</p>',
-        unsafe_allow_html=True,
+    with st.expander("Advanced"):
+        session_id = st.text_input(
+            "Session ID",
+            value="demo-session",
+        )
+        st.caption(
+            "The session ID groups saved analysis history."
+        )
+
+    st.caption(
+        "Research assistance only—not financial advice."
     )
 
 main_col, debug_col = st.columns([0.62, 0.38], gap="large")
@@ -95,7 +157,7 @@ with main_col:
     st.subheader("Run Summary")
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     status_metric = metric_col1.empty()
-    trace_metric = metric_col2.empty()
+    evidence_metric = metric_col2.empty()
     tool_metric = metric_col3.empty()
 
     st.subheader("Answer")
@@ -134,7 +196,7 @@ def stream_sse_events(query: str, session_id: str | None = None):
 
 
 status_metric.metric("Status", "Idle")
-trace_metric.metric("Trace", "None")
+evidence_metric.metric("Evidence", "0")
 tool_metric.metric("Tools", "0")
 answer_placeholder.info("Choose a demo query and run the agent.")
 grounded_placeholder.caption(
@@ -150,7 +212,7 @@ if run_button and user_query:
     tool_count = 0
 
     status_metric.metric("Status", "Running")
-    trace_metric.metric("Trace", "Pending")
+    evidence_metric.metric("Evidence", "0")
     tool_metric.metric("Tools", "0")
     answer_placeholder.info("Streaming analysis from the FastAPI agent...")
     grounded_placeholder.empty()
@@ -180,7 +242,6 @@ if run_button and user_query:
 
             if latest_trace_id:
                 trace_id_placeholder.code(latest_trace_id)
-                trace_metric.metric("Trace", latest_trace_id[:8])
 
             if event_name == "thought":
                 final_trace.append(event_data)
@@ -191,6 +252,10 @@ if run_button and user_query:
                 tool_metric.metric("Tools", str(tool_count))
 
                 grounded_evidence = build_grounded_evidence(final_trace)
+                evidence_metric.metric(
+                    "Evidence",
+                    str(len(grounded_evidence)),
+                )
                 if grounded_evidence:
                     grounded_placeholder.dataframe(
                         grounded_evidence,
@@ -204,6 +269,10 @@ if run_button and user_query:
                 answer_placeholder.success(event_data["answer"])
 
                 grounded_evidence = build_grounded_evidence(final_trace)
+                evidence_metric.metric(
+                    "Evidence",
+                    str(len(grounded_evidence)),
+                )
                 if grounded_evidence:
                     grounded_placeholder.dataframe(
                         grounded_evidence,
