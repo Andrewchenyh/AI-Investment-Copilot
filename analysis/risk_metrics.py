@@ -49,3 +49,44 @@ def annualized_return(simple_return: float, days_to_expiration: int) -> float:
     if days_to_expiration <= 0:
         raise ValueError("days_to_expiration must be positive.")
     return simple_return * (365 / days_to_expiration)
+
+
+def cash_secured_put_profit_at_expiration(
+    underlying_price: float,
+    strike: float,
+    premium: float,
+    contract_size: int = 100,
+) -> float:
+    """
+    Calculate the dollar profit or loss for one short cash-secured
+    put contract at expiration.
+
+    Positive values represent profit. Negative values represent loss.
+    """
+    if underlying_price < 0:
+        raise ValueError(
+            "underlying_price must be non-negative."
+        )
+
+    if strike <= 0:
+        raise ValueError("strike must be positive.")
+
+    if premium <= 0:
+        raise ValueError("premium must be positive.")
+
+    if premium >= strike:
+        raise ValueError(
+            "premium must be less than strike."
+        )
+
+    if contract_size <= 0:
+        raise ValueError(
+            "contract_size must be positive."
+        )
+
+    intrinsic_value = max(
+        strike - underlying_price,
+        0.0,
+    )
+
+    return (premium - intrinsic_value) * contract_size
