@@ -13,6 +13,8 @@ from apps.sse_client import (
     require_terminal_event,
     validate_event_payloads,
 )
+from apps.charts import build_csp_payoff_figure
+from apps.csp_payoff import build_csp_payoff_series
 
 load_dotenv()
 
@@ -123,6 +125,8 @@ with main_col:
         st.subheader("Research Brief")
         answer_placeholder = st.empty()
 
+    payoff_placeholder = st.empty()
+
     with st.container(border=True):
         st.subheader("Grounded Evidence")
         grounded_placeholder = st.empty()
@@ -177,6 +181,7 @@ if run_button and user_query:
     evidence_metric.metric("Evidence", "0")
     tool_metric.metric("Tools", "0")
     answer_placeholder.info("Streaming analysis from the FastAPI agent...")
+    payoff_placeholder.empty()
     grounded_placeholder.empty()
     trace_id_placeholder.caption("Trace ID: pending")
     activity_placeholder.empty()
@@ -227,9 +232,38 @@ if run_button and user_query:
 
             elif event_name == "final_answer":
                 final_trace = event_data["trace"]
+                payoff_series = build_csp_payoff_series(
+                    final_trace
+                )
+
+                if payoff_series is not None:
+                    payoff_figure = build_csp_payoff_figure(
+                        payoff_series
+                    )
+
+                    with payoff_placeholder.container(
+                        border=True
+                    ):
+                        st.subheader("Expiration Payoff")
+                        st.plotly_chart(
+                            payoff_figure,
+                            width="stretch",
+                            theme=None,
+                            config={
+                                "displayModeBar": False,
+                                "responsive": True,
+                            },
+                        )
+                        st.caption(
+                            f"Scenario assumes a "
+                            f"${payoff_series.premium:,.2f} "
+                            f"premium per share for one "
+                            f"{payoff_series.contract_size}-share "
+                            f"contract. Excludes commissions, "
+                            f"fees, taxes, and early assignment."
+                        )
                 status_metric.metric("Status", "Complete")
                 answer_placeholder.success(event_data["answer"])
-
                 grounded_evidence = build_grounded_evidence(final_trace)
                 evidence_metric.metric(
                     "Evidence",
