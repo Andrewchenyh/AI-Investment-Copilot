@@ -30,7 +30,7 @@ build/
 *.egg-info/
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
 
 # finsight
 finsight/
