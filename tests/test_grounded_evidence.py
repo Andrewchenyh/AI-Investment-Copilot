@@ -86,6 +86,110 @@ def test_options_chain_evidence_includes_expiration() -> None:
     ]
 
 
+def test_technical_evidence_surfaces_indicator_snapshot() -> None:
+    trace = [
+        successful_tool_result(
+            "analyze_technical_indicators",
+            {
+                "ticker": "AAPL",
+                "as_of": "2026-08-06",
+                "close": 219.45,
+                "rsi_14": 56.789,
+                "moving_averages": {
+                    "sma_20": 215.10,
+                    "sma_50": 208.25,
+                    "ema_20": 216.75,
+                },
+                "macd": {
+                    "line": 2.1,
+                    "signal": 1.8,
+                    "histogram": 0.3,
+                },
+                "bollinger_bands": {
+                    "lower": 203.0,
+                    "middle": 215.10,
+                    "upper": 227.20,
+                },
+                "lookback_period": "1y",
+                "interval": "1d",
+                "source": "yfinance",
+            },
+        )
+    ]
+
+    rows = build_grounded_evidence(trace)
+    rows_by_metric = {row["Metric"]: row for row in rows}
+
+    assert len(rows) == 9
+    assert rows_by_metric["AAPL close"]["Value"] == "219.45"
+    assert "$" not in rows_by_metric["AAPL close"]["Value"]
+    assert rows_by_metric["AAPL RSI (14)"] == {
+        "Metric": "AAPL RSI (14)",
+        "Value": "56.79",
+        "Evidence": (
+            "0–100 momentum scale · As of 2026-08-06 · "
+            "1y lookback · 1d bars · yfinance"
+        ),
+    }
+    assert rows_by_metric["AAPL SMA (50)"]["Value"] == "208.25"
+    assert rows_by_metric["AAPL EMA (20)"]["Value"] == "216.75"
+    assert rows_by_metric["AAPL MACD histogram"]["Value"] == "0.30"
+    assert rows_by_metric["AAPL Bollinger lower"]["Value"] == "203.00"
+    assert rows_by_metric["AAPL Bollinger upper"]["Value"] == "227.20"
+
+
+def test_technical_evidence_tolerates_malformed_nested_snapshots() -> None:
+    trace = [
+        successful_tool_result(
+            "analyze_technical_indicators",
+            {
+                "ticker": "AAPL",
+                "as_of": "2026-08-06",
+                "close": 219.45,
+                "rsi_14": 56.0,
+                "moving_averages": None,
+                "macd": [],
+                "bollinger_bands": "unavailable",
+                "lookback_period": "1y",
+                "interval": "1d",
+                "source": "yfinance",
+            },
+        )
+    ]
+
+    rows_by_metric = {
+        row["Metric"]: row
+        for row in build_grounded_evidence(trace)
+    }
+
+    assert rows_by_metric["AAPL close"]["Value"] == "219.45"
+    assert rows_by_metric["AAPL SMA (20)"]["Value"] == "Unavailable"
+    assert rows_by_metric["AAPL MACD histogram"]["Value"] == "Unavailable"
+    assert rows_by_metric["AAPL Bollinger upper"]["Value"] == "Unavailable"
+
+
+def test_technical_evidence_rejects_non_finite_or_boolean_values() -> None:
+    trace = [
+        successful_tool_result(
+            "analyze_technical_indicators",
+            {
+                "ticker": "AAPL",
+                "close": float("nan"),
+                "rsi_14": True,
+                "moving_averages": {
+                    "sma_20": float("inf"),
+                },
+                "macd": {},
+                "bollinger_bands": {},
+            },
+        )
+    ]
+
+    rows = build_grounded_evidence(trace)
+
+    assert all(row["Value"] == "Unavailable" for row in rows)
+
+
 def test_csp_evidence_surfaces_risk_provenance_and_warning() -> None:
     warning = (
         "The bid-ask spread exceeds 20% of the midpoint, "
