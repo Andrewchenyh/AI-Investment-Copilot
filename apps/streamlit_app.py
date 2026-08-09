@@ -13,8 +13,16 @@ from apps.sse_client import (
     require_terminal_event,
     validate_event_payloads,
 )
-from apps.charts import build_csp_payoff_figure
+
 from apps.csp_payoff import build_csp_payoff_series
+from apps.charts import (
+    build_csp_payoff_figure,
+    build_technical_snapshot_figure,
+)
+
+from apps.technical_snapshot import (
+    build_technical_snapshot,
+)
 
 load_dotenv()
 
@@ -129,6 +137,7 @@ with main_col:
         answer_placeholder = st.empty()
 
     payoff_placeholder = st.empty()
+    technical_placeholder = st.empty()
 
     with st.container(border=True):
         st.subheader("Grounded Evidence")
@@ -185,6 +194,7 @@ if run_button and user_query:
     tool_metric.metric("Tools", "0")
     answer_placeholder.info("Streaming analysis from the FastAPI agent...")
     payoff_placeholder.empty()
+    technical_placeholder.empty()
     grounded_placeholder.empty()
     trace_id_placeholder.caption("Trace ID: pending")
     activity_placeholder.empty()
@@ -265,6 +275,43 @@ if run_button and user_query:
                             f"contract. Excludes commissions, "
                             f"fees, taxes, and early assignment."
                         )
+
+                technical_snapshot = (
+                    build_technical_snapshot(
+                        final_trace
+                    )
+                )
+
+                if technical_snapshot is not None:
+                    technical_figure = (
+                        build_technical_snapshot_figure(
+                            technical_snapshot
+                        )
+                    )
+
+                    with technical_placeholder.container(
+                        border=True
+                    ):
+                        st.subheader(
+                            "Technical Indicator Dashboard"
+                        )
+                        st.plotly_chart(
+                            technical_figure,
+                            width="stretch",
+                            theme=None,
+                            config={
+                                "displayModeBar": False,
+                                "responsive": True,
+                            },
+                        )
+                        st.caption(
+                            "Latest computed daily-indicator "
+                            f"snapshot as of "
+                            f"{technical_snapshot.as_of}. "
+                            "This is not a historical price "
+                            "chart or a forecast."
+                        )
+
                 status_metric.metric("Status", "Complete")
                 answer_placeholder.markdown(event_data["answer"])
                 grounded_evidence = build_grounded_evidence(final_trace)
