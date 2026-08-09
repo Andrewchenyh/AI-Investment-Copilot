@@ -108,6 +108,33 @@ div[data-testid="stAlert"] {
     padding: 0.4rem 0.75rem;
 }
 
+.st-key-research_brief {
+    min-width: 0;
+}
+
+.st-key-research_brief [data-testid="stMarkdownContainer"] {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.st-key-research_brief p,
+.st-key-research_brief li {
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+
+.st-key-research_brief code {
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    overflow-wrap: anywhere;
+    padding: 0;
+    white-space: normal;
+}
+
 @media (max-width: 900px) {
     .block-container {
         padding-left: 1.25rem;
