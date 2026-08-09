@@ -207,10 +207,10 @@ def build_technical_snapshot_figure(
         ),
         row_heights=[
             0.42,
-            0.20,
+            0.25,
             0.33,
         ],
-        vertical_spacing=0.12,
+        vertical_spacing=0.15,
     )
 
     price_markers = (
@@ -344,7 +344,6 @@ def build_technical_snapshot_figure(
                     "tickvals": [
                         0,
                         30,
-                        50,
                         70,
                         100,
                     ],
