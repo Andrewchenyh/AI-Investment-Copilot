@@ -5,7 +5,7 @@ from agents.react_agent import (
     DEFAULT_MODEL_REQUEST_TIMEOUT_MS,
     ReActAgent,
 )
-from agents.schemas import AgentStep, ToolCall
+from agents.schemas import AgentStep, ToolCall, ToolObservation
 
 
 def make_agent(step: AgentStep, max_steps: int = 1) -> ReActAgent:
@@ -212,3 +212,58 @@ def test_max_steps_returns_a_useful_error() -> None:
     assert event["event"] == "error"
     assert event["data"]["status"] == "error"
     assert "maximum of 1 steps" in event["data"]["message"]
+
+
+def test_agent_enforces_explicit_strike_before_tool_execution(
+    mocker,
+) -> None:
+    agent = make_agent(
+        AgentStep(
+            thought="I need the options chain.",
+            action_type="tool_call",
+            tool_call=ToolCall(
+                tool_name="get_options_chain",
+                tool_args_json=(
+                    '{"ticker": "SNDK", "target_strike": 1130}'
+                ),
+            ),
+        )
+    )
+    execute_tool = mocker.patch.object(
+        agent,
+        "_execute_tool",
+        return_value=ToolObservation(
+            tool_name="get_options_chain",
+            tool_args={
+                "ticker": "SNDK",
+                "target_strike": 1000.0,
+            },
+            result={},
+            success=True,
+        ),
+    )
+
+    events = list(
+        agent.run_with_events(
+            "Write a 1000 cash-secured put on SNDK.",
+            trace_id="trace-123",
+        )
+    )
+
+    execute_tool.assert_called_once_with(
+        tool_name="get_options_chain",
+        tool_args={
+            "ticker": "SNDK",
+            "target_strike": 1000.0,
+        },
+        trace_id="trace-123",
+    )
+    tool_result = next(
+        event
+        for event in events
+        if event["event"] == "tool_result"
+    )
+    assert tool_result["data"]["tool_args"] == {
+        "ticker": "SNDK",
+        "target_strike": 1000.0,
+    }
