@@ -111,6 +111,8 @@ class ReActAgent:
                 - When required_csp_strike is present, pass it as target_strike to get_options_chain and as strike to analyze_cash_secured_put.
                 - Never silently substitute a different strike for an explicitly requested strike.
                 - get_options_chain returns a filtered sample. Do not describe the sample's lowest or highest returned strike as the lowest or highest strike in the complete options chain.
+                - Format final answers as readable Markdown using short paragraphs and concise bullets when appropriate.
+                - Do not wrap tickers, dates, financial values, or percentages in backticks or code formatting.
                 """
 
     def _runtime_budget_exhausted(
