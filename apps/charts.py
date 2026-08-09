@@ -139,7 +139,7 @@ def build_csp_payoff_figure(
         },
         height=460,
         margin={
-            "l": 40,
+            "l": 90,
             "r": 30,
             "t": 90,
             "b": 45,
@@ -161,7 +161,11 @@ def build_csp_payoff_figure(
             "linecolor": GRID_COLOR,
         },
         yaxis={
-            "title": "Profit / loss per contract",
+            "title": {
+                "text": "Profit / loss per contract",
+                "standoff": 18,
+            },
+            "automargin": True,
             "tickprefix": "$",
             "gridcolor": GRID_COLOR,
             "zeroline": False,
