@@ -121,7 +121,10 @@ main_col, activity_col = st.columns(
 )
 
 with main_col:
-    with st.container(border=True):
+    with st.container(
+        border=True,
+        key="research_brief",
+    ):
         st.subheader("Research Brief")
         answer_placeholder = st.empty()
 
@@ -263,7 +266,7 @@ if run_button and user_query:
                             f"fees, taxes, and early assignment."
                         )
                 status_metric.metric("Status", "Complete")
-                answer_placeholder.success(event_data["answer"])
+                answer_placeholder.markdown(event_data["answer"])
                 grounded_evidence = build_grounded_evidence(final_trace)
                 evidence_metric.metric(
                     "Evidence",
