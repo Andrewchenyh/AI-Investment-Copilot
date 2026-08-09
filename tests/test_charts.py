@@ -103,9 +103,12 @@ def test_build_csp_payoff_figure_configures_dashboard_layout() -> None:
     assert figure.layout.height == 460
     assert figure.layout.showlegend is False
     assert figure.layout.paper_bgcolor == "rgba(0, 0, 0, 0)"
+    assert figure.layout.margin.l == 90
     assert figure.layout.xaxis.title.text == "Underlying price at expiration"
     assert figure.layout.xaxis.tickprefix == "$"
     assert figure.layout.yaxis.title.text == "Profit / loss per contract"
+    assert figure.layout.yaxis.title.standoff == 18
+    assert figure.layout.yaxis.automargin is True
     assert figure.layout.yaxis.tickprefix == "$"
 
 
