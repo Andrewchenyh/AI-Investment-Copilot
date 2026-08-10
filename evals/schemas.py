@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any, Literal
-
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -9,6 +8,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from evals.concept_patterns import ANSWER_CONCEPT_PATTERNS
 
 
 class ToolCallExpectation(BaseModel):
@@ -79,7 +80,7 @@ class GoldenQuery(BaseModel):
         ...,
         min_length=1,
     )
-    required_answer_concepts: list[AnswerConceptExpectation] = Field(
+    required_answer_concepts: list[str] = Field(
         ...,
         min_length=1,
     )
@@ -110,16 +111,39 @@ class GoldenQuery(BaseModel):
 
         return values
 
-    @model_validator(mode="after")
-    def ensure_concept_names_are_unique(self) -> GoldenQuery:
-        normalized_names = [
-            concept.name.casefold()
-            for concept in self.required_answer_concepts
-        ]
-
-        if len(normalized_names) != len(set(normalized_names)):
+    @field_validator("required_answer_concepts")
+    @classmethod
+    def validate_answer_concepts(
+        cls,
+        values: list[str],
+    ) -> list[str]:
+        if any(
+            not value
+            or value != value.strip()
+            for value in values
+        ):
             raise ValueError(
-                "required answer concept names must be unique"
+                "required answer concepts must be nonblank and trimmed"
             )
 
-        return self
+        normalized_values = [
+            value.casefold()
+            for value in values
+        ]
+        if len(normalized_values) != len(
+            set(normalized_values)
+        ):
+            raise ValueError(
+                "required answer concepts must be unique"
+            )
+
+        unknown_concepts = sorted(
+            set(values) - ANSWER_CONCEPT_PATTERNS.keys()
+        )
+        if unknown_concepts:
+            raise ValueError(
+                "unknown required answer concepts: "
+                f"{unknown_concepts}"
+            )
+
+        return values
