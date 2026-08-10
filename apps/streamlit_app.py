@@ -19,7 +19,11 @@ from apps.charts import (
     build_csp_payoff_figure,
     build_technical_snapshot_figure,
 )
-
+from apps.options_charts import build_options_liquidity_figure
+from apps.options_liquidity import (
+    build_options_liquidity_snapshot,
+    format_selection_basis,
+)
 from apps.technical_snapshot import (
     build_technical_snapshot,
 )
@@ -137,6 +141,7 @@ with main_col:
         answer_placeholder = st.empty()
 
     payoff_placeholder = st.empty()
+    options_placeholder = st.empty()
     technical_placeholder = st.empty()
 
     with st.container(border=True):
@@ -194,6 +199,7 @@ if run_button and user_query:
     tool_metric.metric("Tools", "0")
     answer_placeholder.info("Streaming analysis from the FastAPI agent...")
     payoff_placeholder.empty()
+    options_placeholder.empty()
     technical_placeholder.empty()
     grounded_placeholder.empty()
     trace_id_placeholder.caption("Trace ID: pending")
@@ -274,6 +280,39 @@ if run_button and user_query:
                             f"{payoff_series.contract_size}-share "
                             f"contract. Excludes commissions, "
                             f"fees, taxes, and early assignment."
+                        )
+
+                options_snapshot = build_options_liquidity_snapshot(
+                    final_trace
+                )
+
+                if options_snapshot is not None:
+                    options_figure = build_options_liquidity_figure(
+                        options_snapshot
+                    )
+                    selection_label = format_selection_basis(
+                        options_snapshot.selection_basis
+                    )
+
+                    with options_placeholder.container(
+                        border=True
+                    ):
+                        st.subheader("Options Market Quality")
+                        st.plotly_chart(
+                            options_figure,
+                            width="stretch",
+                            theme=None,
+                            config={
+                                "displayModeBar": False,
+                                "responsive": True,
+                            },
+                        )
+                        st.caption(
+                            "Selected contract sample based on "
+                            f"{selection_label}. Missing volume or "
+                            "open interest means the data was unavailable, "
+                            "not zero. Crossed and unavailable quotes are "
+                            "excluded from the premium panel."
                         )
 
                 technical_snapshot = (
