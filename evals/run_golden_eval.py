@@ -8,11 +8,11 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from agents.react_agent import ReActAgent
+from evals.concept_patterns import ANSWER_CONCEPT_PATTERNS
 from evals.judge import GeminiJudge
 from evals.load_golden import load_golden_queries
 from evals.store_results import save_eval_run
 from tools.setup_registry import build_tool_registry
-
 
 DEFAULT_OUTPUT_PATH = Path("evals/results/latest_golden_eval.json")
 
@@ -110,20 +110,21 @@ def find_missing_answer_literals(
 
 def find_missing_answer_concepts(
     answer: str,
-    concepts: list[dict[str, Any]],
+    concepts: list[str],
 ) -> list[str]:
-    normalized_answer = answer.casefold()
     missing_concepts: list[str] = []
 
-    for concept in concepts:
-        alternatives = concept["alternatives"]
+    for concept_name in concepts:
+        patterns = ANSWER_CONCEPT_PATTERNS[
+            concept_name
+        ]
         concept_found = any(
-            alternative.casefold() in normalized_answer
-            for alternative in alternatives
+            pattern.search(answer) is not None
+            for pattern in patterns
         )
 
         if not concept_found:
-            missing_concepts.append(concept["name"])
+            missing_concepts.append(concept_name)
 
     return missing_concepts
 
