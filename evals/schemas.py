@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
 )
 
 from evals.concept_patterns import ANSWER_CONCEPT_PATTERNS
@@ -28,41 +28,6 @@ class ToolCallExpectation(BaseModel):
                 "tool_name must not have surrounding whitespace"
             )
         return value
-
-
-class AnswerConceptExpectation(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., min_length=1)
-    alternatives: list[str] = Field(..., min_length=1)
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        if value != value.strip():
-            raise ValueError(
-                "concept name must not have surrounding whitespace"
-            )
-        return value
-
-    @field_validator("alternatives")
-    @classmethod
-    def validate_alternatives(
-        cls,
-        values: list[str],
-    ) -> list[str]:
-        if any(not value or value != value.strip() for value in values):
-            raise ValueError(
-                "concept alternatives must be nonblank and trimmed"
-            )
-
-        normalized_values = [value.casefold() for value in values]
-        if len(normalized_values) != len(set(normalized_values)):
-            raise ValueError(
-                "concept alternatives must not contain duplicates"
-            )
-
-        return values
 
 
 class GoldenQuery(BaseModel):
