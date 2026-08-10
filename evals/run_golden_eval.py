@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
+import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from agents.react_agent import ReActAgent
@@ -14,7 +16,9 @@ from evals.load_golden import load_golden_queries
 from evals.store_results import save_eval_run
 from tools.setup_registry import build_tool_registry
 
+
 DEFAULT_OUTPUT_PATH = Path("evals/results/latest_golden_eval.json")
+DEFAULT_CASE_DELAY_SECONDS = 10.0
 
 
 class EvaluationAgent(Protocol):
@@ -219,6 +223,49 @@ def evaluate_record(
     }
 
 
+def evaluate_records(
+    records: list[dict[str, Any]],
+    agent: EvaluationAgent,
+    judge: GeminiJudge | None = None,
+    delay_seconds: float = DEFAULT_CASE_DELAY_SECONDS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> list[dict[str, Any]]:
+    if (
+        not math.isfinite(delay_seconds)
+        or delay_seconds < 0
+    ):
+        raise ValueError(
+            "delay_seconds must be finite and non-negative."
+        )
+
+    results: list[dict[str, Any]] = []
+    total = len(records)
+
+    for index, record in enumerate(records):
+        result = evaluate_record(
+            record,
+            agent,
+            judge=judge,
+        )
+        results.append(result)
+
+        status = "PASS" if result["passed"] else "FAIL"
+        print(
+            f"[{index + 1}/{total}] "
+            f"{record['id']}: {status}"
+        )
+
+        has_next_record = index < total - 1
+        if has_next_record and delay_seconds > 0:
+            print(
+                f"Waiting {delay_seconds:g}s "
+                "before the next case..."
+            )
+            sleep_fn(delay_seconds)
+
+    return results
+
+
 def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(results)
     passed = sum(1 for result in results if result["passed"])
@@ -235,6 +282,7 @@ def run_eval(
     limit: int | None,
     output_path: Path,
     use_judge: bool = False,
+    delay_seconds: float = DEFAULT_CASE_DELAY_SECONDS,
 ) -> dict[str, Any]:
 
     judge = GeminiJudge() if use_judge else None
@@ -245,10 +293,12 @@ def run_eval(
     registry = build_tool_registry()
     agent = ReActAgent(tool_registry=registry, max_steps=8)
 
-    results = [
-        evaluate_record(record, agent, judge=judge)
-        for record in records
-    ]
+    results = evaluate_records(
+        records,
+        agent,
+        judge=judge,
+        delay_seconds=delay_seconds,
+    )
     summary = summarize_results(results)
 
     payload = {
@@ -280,12 +330,22 @@ def main() -> None:
         action="store_true",
         help="Persist this eval run to the local SQLite eval database.",
     )
+    parser.add_argument(
+        "--delay-seconds",
+        type=float,
+        default=DEFAULT_CASE_DELAY_SECONDS,
+        help=(
+            "Seconds to wait between golden cases "
+            "to reduce provider rate-limit pressure."
+        ),
+    )
     args = parser.parse_args()
 
     payload = run_eval(
         limit=args.limit,
         output_path=args.output,
         use_judge=args.judge,
+        delay_seconds=args.delay_seconds,
     )
     if args.save_db:
         run_id = save_eval_run(payload)
