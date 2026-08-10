@@ -66,6 +66,26 @@ def test_technical_analysis_query_uses_registered_tool_contract() -> None:
     assert "placeholder" not in technical_record["notes"].lower()
 
 
+def test_case_specific_answer_contracts_use_registered_semantics() -> None:
+    records_by_id = {
+        record["id"]: record
+        for record in load_golden_queries()
+    }
+
+    dte_record = records_by_id[
+        "csp_orcl_explicit_dte_window"
+    ]
+    assert "selected_dte" in dte_record[
+        "required_answer_concepts"
+    ]
+
+    oracle_record = records_by_id["ambiguous_company_name"]
+    assert oracle_record["required_answer_literals"] == [
+        "Oracle",
+        "ORCL",
+    ]
+
+
 def test_successful_csp_queries_require_core_financial_concepts() -> None:
     records_by_id = {
         record["id"]: record
@@ -73,12 +93,11 @@ def test_successful_csp_queries_require_core_financial_concepts() -> None:
     }
 
     for record_id in sorted(SUCCESSFUL_CSP_QUERY_IDS):
-        concept_names = {
-            concept["name"]
-            for concept in records_by_id[record_id][
+        concept_names = set(
+            records_by_id[record_id][
                 "required_answer_concepts"
             ]
-        }
+        )
 
         missing_concepts = CORE_CSP_CONCEPTS - concept_names
         assert not missing_concepts, (
@@ -109,9 +128,7 @@ def test_all_golden_tool_references_are_registered() -> None:
                 "required_tool_calls": [
                     {"tool_name": "analyze_technical_indicators"}
                 ],
-                "required_answer_concepts": [
-                    {"name": "rsi", "alternatives": ["RSI"]}
-                ],
+                "required_answer_concepts": ["rsi_14"],
                 "notes": "Missing the required query field.",
             },
             id="missing-required-field",
@@ -125,9 +142,7 @@ def test_all_golden_tool_references_are_registered() -> None:
                 "required_tool_calls": [
                     {"tool_name": "analyze_technical_indicators"}
                 ],
-                "required_answer_concepts": [
-                    {"name": "rsi", "alternatives": ["RSI"]}
-                ],
+                "required_answer_concepts": ["rsi_14"],
                 "notes": "Contains a removed legacy field.",
             },
             id="legacy-field",
@@ -138,9 +153,7 @@ def test_all_golden_tool_references_are_registered() -> None:
                 "category": "technical_analysis",
                 "query": "Analyze AAPL.",
                 "required_tool_calls": [],
-                "required_answer_concepts": [
-                    {"name": "rsi", "alternatives": ["RSI"]}
-                ],
+                "required_answer_concepts": ["rsi_14"],
                 "notes": "Tool contracts cannot be empty.",
             },
             id="empty-tool-calls",
@@ -160,18 +173,60 @@ def test_all_golden_tool_references_are_registered() -> None:
         ),
         pytest.param(
             {
-                "id": "empty_concept_alternatives",
+                "id": "unknown_answer_concept",
+                "category": "technical_analysis",
+                "query": "Analyze AAPL.",
+                "required_tool_calls": [
+                    {"tool_name": "analyze_technical_indicators"}
+                ],
+                "required_answer_concepts": ["unknown_concept"],
+                "notes": "Concept names must be registered.",
+            },
+            id="unknown-answer-concept",
+        ),
+        pytest.param(
+            {
+                "id": "legacy_concept_object",
                 "category": "technical_analysis",
                 "query": "Analyze AAPL.",
                 "required_tool_calls": [
                     {"tool_name": "analyze_technical_indicators"}
                 ],
                 "required_answer_concepts": [
-                    {"name": "rsi", "alternatives": []}
+                    {
+                        "name": "rsi_14",
+                        "alternatives": ["RSI 14"],
+                    }
                 ],
-                "notes": "Concept alternatives cannot be empty.",
+                "notes": "Legacy concept objects are not supported.",
             },
-            id="empty-concept-alternatives",
+            id="legacy-concept-object",
+        ),
+        pytest.param(
+            {
+                "id": "duplicate_answer_concepts",
+                "category": "technical_analysis",
+                "query": "Analyze AAPL.",
+                "required_tool_calls": [
+                    {"tool_name": "analyze_technical_indicators"}
+                ],
+                "required_answer_concepts": ["rsi_14", "rsi_14"],
+                "notes": "Concept names must be unique.",
+            },
+            id="duplicate-answer-concepts",
+        ),
+        pytest.param(
+            {
+                "id": "blank_answer_concept",
+                "category": "technical_analysis",
+                "query": "Analyze AAPL.",
+                "required_tool_calls": [
+                    {"tool_name": "analyze_technical_indicators"}
+                ],
+                "required_answer_concepts": ["rsi_14", " "],
+                "notes": "Concept names must be nonblank.",
+            },
+            id="blank-answer-concept",
         ),
         pytest.param(
             {
@@ -181,9 +236,7 @@ def test_all_golden_tool_references_are_registered() -> None:
                 "required_tool_calls": [
                     {"tool_name": "analyze_technical_indicators"}
                 ],
-                "required_answer_concepts": [
-                    {"name": "rsi", "alternatives": ["RSI"]}
-                ],
+                "required_answer_concepts": ["rsi_14"],
                 "required_answer_literals": ["AAPL", "aapl"],
                 "notes": "Answer literals must be unique.",
             },
@@ -216,9 +269,7 @@ def test_schema_error_reports_correct_jsonl_line(tmp_path: Path) -> None:
         "required_tool_calls": [
             {"tool_name": "analyze_technical_indicators"}
         ],
-        "required_answer_concepts": [
-            {"name": "rsi", "alternatives": ["RSI"]}
-        ],
+        "required_answer_concepts": ["rsi_14"],
         "notes": "A valid record.",
     }
     invalid_record = {
@@ -227,9 +278,7 @@ def test_schema_error_reports_correct_jsonl_line(tmp_path: Path) -> None:
         "required_tool_calls": [
             {"tool_name": "analyze_technical_indicators"}
         ],
-        "required_answer_concepts": [
-            {"name": "rsi", "alternatives": ["RSI"]}
-        ],
+        "required_answer_concepts": ["rsi_14"],
         "notes": "Missing query.",
     }
 
@@ -264,12 +313,7 @@ def test_loads_structured_expectations(tmp_path: Path) -> None:
             }
         ],
         "required_answer_literals": ["AAPL"],
-        "required_answer_concepts": [
-            {
-                "name": "moving_average",
-                "alternatives": ["50-day", "SMA-50"],
-            }
-        ],
+        "required_answer_concepts": ["sma_50"],
         "notes": "Tests structured evaluation expectations.",
     }
 
@@ -290,9 +334,4 @@ def test_loads_structured_expectations(tmp_path: Path) -> None:
         }
     ]
     assert loaded_record["required_answer_literals"] == ["AAPL"]
-    assert loaded_record["required_answer_concepts"] == [
-        {
-            "name": "moving_average",
-            "alternatives": ["50-day", "SMA-50"],
-        }
-    ]
+    assert loaded_record["required_answer_concepts"] == ["sma_50"]
