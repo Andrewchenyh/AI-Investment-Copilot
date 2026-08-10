@@ -1,10 +1,24 @@
+import pytest
+
 from evals.run_golden_eval import (
     evaluate_record,
+    evaluate_records,
     extract_tools_used,
     find_missing_answer_concepts,
     find_missing_answer_literals,
     find_unsatisfied_tool_calls,
 )
+
+
+def evaluation_record(record_id: str) -> dict:
+    return {
+        "id": record_id,
+        "category": "test",
+        "query": f"Analyze {record_id}.",
+        "required_tool_calls": [],
+        "required_answer_literals": [],
+        "required_answer_concepts": ["spot_price"],
+    }
 
 
 def test_extract_tools_used() -> None:
@@ -188,7 +202,7 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
         def ask(self, user_query: str, trace_id: str) -> dict:
             return {
                 "status": "success",
-                "answer": "ORCL analysis completed.",
+                "answer": "ORCL current price analysis completed.",
                 "trace": [
                     {
                         "tool_name": "get_options_chain",
@@ -210,9 +224,7 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
         "query": "Analyze ORCL.",
         "required_tool_calls": [requirement],
         "required_answer_literals": ["ORCL"],
-        "required_answer_concepts": [
-            {"name": "analysis", "alternatives": ["analysis"]}
-        ],
+        "required_answer_concepts": ["spot_price"],
     }
 
     result = evaluate_record(record, FakeAgent())
@@ -224,17 +236,8 @@ def test_evaluate_record_applies_required_tool_calls() -> None:
     assert result["passed"] is False
 
 
-def test_answer_concepts_accept_alternatives_and_report_missing() -> None:
-    concepts = [
-        {
-            "name": "premium",
-            "alternatives": ["premium", "credit received"],
-        },
-        {
-            "name": "expiration",
-            "alternatives": ["expiration", "expires", "expiring"],
-        },
-    ]
+def test_answer_concepts_accept_patterns_and_report_missing() -> None:
+    concepts = ["premium", "expiration"]
 
     assert find_missing_answer_concepts(
         "The trade provides a credit received of $1.78.",
@@ -252,7 +255,7 @@ def test_evaluate_record_applies_answer_contracts() -> None:
         def ask(self, user_query: str, trace_id: str) -> dict:
             return {
                 "status": "success",
-                "answer": "AAPL RSI is currently neutral.",
+                "answer": "AAPL RSI 14 is currently neutral.",
                 "trace": [
                     {
                         "tool_name": "analyze_technical_indicators",
@@ -275,13 +278,7 @@ def test_evaluate_record_applies_answer_contracts() -> None:
             }
         ],
         "required_answer_literals": ["AAPL", "50-day"],
-        "required_answer_concepts": [
-            {"name": "rsi", "alternatives": ["RSI"]},
-            {
-                "name": "moving_average",
-                "alternatives": ["50-day", "SMA-50"],
-            },
-        ],
+        "required_answer_concepts": ["rsi_14", "sma_50"],
     }
 
     result = evaluate_record(record, FakeAgent())
@@ -289,7 +286,7 @@ def test_evaluate_record_applies_answer_contracts() -> None:
     assert result["checks"]["answer_literals_pass"] is False
     assert result["missing_answer_literals"] == ["50-day"]
     assert result["checks"]["answer_concepts_pass"] is False
-    assert result["missing_answer_concepts"] == ["moving_average"]
+    assert result["missing_answer_concepts"] == ["sma_50"]
     assert result["passed"] is False
 
 
@@ -311,9 +308,7 @@ def test_evaluate_record_isolates_agent_exceptions() -> None:
             }
         ],
         "required_answer_literals": ["AAPL"],
-        "required_answer_concepts": [
-            {"name": "rsi", "alternatives": ["RSI"]}
-        ],
+        "required_answer_concepts": ["rsi_14"],
     }
 
     result = evaluate_record(record, FailingAgent())
@@ -322,7 +317,7 @@ def test_evaluate_record_isolates_agent_exceptions() -> None:
     assert result["error"] == "RuntimeError: provider unavailable"
     assert result["checks"]["status_pass"] is False
     assert result["missing_answer_literals"] == ["AAPL"]
-    assert result["missing_answer_concepts"] == ["rsi"]
+    assert result["missing_answer_concepts"] == ["rsi_14"]
     assert result["passed"] is False
 
 
@@ -331,7 +326,7 @@ def test_evaluate_record_isolates_optional_judge_errors() -> None:
         def ask(self, user_query: str, trace_id: str) -> dict:
             return {
                 "status": "success",
-                "answer": "AAPL RSI analysis.",
+                "answer": "AAPL RSI 14 analysis.",
                 "trace": [
                     {
                         "tool_name": "analyze_technical_indicators",
@@ -358,9 +353,7 @@ def test_evaluate_record_isolates_optional_judge_errors() -> None:
             }
         ],
         "required_answer_literals": ["AAPL"],
-        "required_answer_concepts": [
-            {"name": "rsi", "alternatives": ["RSI"]}
-        ],
+        "required_answer_concepts": ["rsi_14"],
     }
 
     result = evaluate_record(
@@ -372,3 +365,134 @@ def test_evaluate_record_isolates_optional_judge_errors() -> None:
     assert result["passed"] is True
     assert result["judge_score"] is None
     assert result["judge_error"] == "RuntimeError: judge unavailable"
+
+
+def test_evaluate_records_sleeps_only_between_cases(capsys) -> None:
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def ask(self, user_query: str, trace_id: str) -> dict:
+            self.queries.append(user_query)
+            return {
+                "status": "success",
+                "answer": "The current price is available.",
+                "trace": [],
+            }
+
+    agent = FakeAgent()
+    sleep_calls: list[float] = []
+    records = [
+        evaluation_record("first"),
+        evaluation_record("second"),
+        evaluation_record("third"),
+    ]
+
+    results = evaluate_records(
+        records,
+        agent,
+        delay_seconds=2.5,
+        sleep_fn=sleep_calls.append,
+    )
+
+    assert [result["id"] for result in results] == [
+        "first",
+        "second",
+        "third",
+    ]
+    assert agent.queries == [
+        "Analyze first.",
+        "Analyze second.",
+        "Analyze third.",
+    ]
+    assert sleep_calls == [2.5, 2.5]
+    assert capsys.readouterr().out.count("Waiting 2.5s") == 2
+
+
+def test_evaluate_records_skips_zero_delay() -> None:
+    class FakeAgent:
+        def ask(self, user_query: str, trace_id: str) -> dict:
+            return {
+                "status": "success",
+                "answer": "The current price is available.",
+                "trace": [],
+            }
+
+    def fail_if_called(delay_seconds: float) -> None:
+        raise AssertionError(
+            f"sleep called unexpectedly with {delay_seconds}"
+        )
+
+    results = evaluate_records(
+        [
+            evaluation_record("first"),
+            evaluation_record("second"),
+        ],
+        FakeAgent(),
+        delay_seconds=0,
+        sleep_fn=fail_if_called,
+    )
+
+    assert len(results) == 2
+
+
+def test_evaluate_records_continues_after_failed_case() -> None:
+    class IntermittentAgent:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def ask(self, user_query: str, trace_id: str) -> dict:
+            self.call_count += 1
+            if self.call_count == 1:
+                raise RuntimeError("provider unavailable")
+
+            return {
+                "status": "success",
+                "answer": "The current price is available.",
+                "trace": [],
+            }
+
+    sleep_calls: list[float] = []
+    results = evaluate_records(
+        [
+            evaluation_record("failed"),
+            evaluation_record("successful"),
+        ],
+        IntermittentAgent(),
+        delay_seconds=1,
+        sleep_fn=sleep_calls.append,
+    )
+
+    assert [result["passed"] for result in results] == [
+        False,
+        True,
+    ]
+    assert sleep_calls == [1]
+
+
+@pytest.mark.parametrize(
+    "delay_seconds",
+    [
+        -1,
+        float("inf"),
+        float("-inf"),
+        float("nan"),
+    ],
+)
+def test_evaluate_records_rejects_invalid_delay(
+    delay_seconds: float,
+) -> None:
+    class UnusedAgent:
+        def ask(self, user_query: str, trace_id: str) -> dict:
+            raise AssertionError("agent should not be called")
+
+    with pytest.raises(
+        ValueError,
+        match="delay_seconds must be finite and non-negative",
+    ):
+        evaluate_records(
+            [evaluation_record("unused")],
+            UnusedAgent(),
+            delay_seconds=delay_seconds,
+            sleep_fn=lambda _: None,
+        )
