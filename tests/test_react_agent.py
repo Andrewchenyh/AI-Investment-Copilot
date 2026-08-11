@@ -267,3 +267,86 @@ def test_agent_enforces_explicit_strike_before_tool_execution(
         "ticker": "SNDK",
         "target_strike": 1000.0,
     }
+
+
+def test_agent_defers_csp_final_answer_until_analysis_attempt(
+    mocker,
+) -> None:
+    steps = [
+        AgentStep(
+            thought="I need an options contract.",
+            action_type="tool_call",
+            tool_call=ToolCall(
+                tool_name="get_options_chain",
+                tool_args_json='{"ticker": "MSFT"}',
+            ),
+        ),
+        AgentStep(
+            thought="I can answer from the chain.",
+            action_type="final_answer",
+            final_answer="Premature answer.",
+        ),
+        AgentStep(
+            thought="I need the deterministic CSP metrics.",
+            action_type="tool_call",
+            tool_call=ToolCall(
+                tool_name="analyze_cash_secured_put",
+                tool_args_json=(
+                    '{"ticker": "MSFT", "strike": 500, '
+                    '"expiration": "2026-08-19"}'
+                ),
+            ),
+        ),
+        AgentStep(
+            thought="The analysis is complete.",
+            action_type="final_answer",
+            final_answer="Grounded CSP answer.",
+        ),
+    ]
+    agent = make_agent(steps[0], max_steps=4)
+    get_step = mocker.patch.object(
+        agent,
+        "_get_validated_llm_step",
+        side_effect=steps,
+    )
+    mocker.patch.object(
+        agent,
+        "_execute_tool",
+        side_effect=[
+            ToolObservation(
+                tool_name="get_options_chain",
+                tool_args={"ticker": "MSFT"},
+                result={"contracts": [{"strike": 500.0}]},
+                success=True,
+            ),
+            ToolObservation(
+                tool_name="analyze_cash_secured_put",
+                tool_args={
+                    "ticker": "MSFT",
+                    "strike": 500,
+                    "expiration": "2026-08-19",
+                },
+                result={"break_even": 494.45},
+                success=True,
+            ),
+        ],
+    )
+
+    events = list(
+        agent.run_with_events(
+            "Should I write a cash-secured put on MSFT?",
+            trace_id="trace-123",
+        )
+    )
+
+    corrections = [
+        event
+        for event in events
+        if event["event"] == "thought"
+        and event["data"]["action_type"] == "workflow_correction"
+    ]
+    assert len(corrections) == 1
+    assert "MSFT" in corrections[0]["data"]["thought"]
+    assert events[-1]["event"] == "final_answer"
+    assert events[-1]["data"]["answer"] == "Grounded CSP answer."
+    assert get_step.call_count == 4
