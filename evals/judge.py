@@ -77,7 +77,7 @@ def build_judge_prompt(
 
 
 class GeminiJudge:
-    def __init__(self, model_id: str = "gemini-3.1-flash-lite"):
+    def __init__(self, model_id: str = "gemini-2.5-flash-lite"):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
