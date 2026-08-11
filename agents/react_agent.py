@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from agents.query_constraints import (
     enforce_explicit_csp_strike,
     extract_explicit_csp_strike,
+    find_csp_tickers_without_analysis_attempt,
 )
 from agents.schemas import AgentStep, ToolObservation
 
@@ -70,6 +71,12 @@ class ReActAgent:
         explicit_csp_strike = (
             extract_explicit_csp_strike(user_query)
         )
+        pending_csp_tickers = (
+            find_csp_tickers_without_analysis_attempt(
+                user_query,
+                trace,
+            )
+        )
         return f"""
                 You are an investment copilot using a ReAct workflow.
 
@@ -86,6 +93,7 @@ class ReActAgent:
 
                 Deterministically extracted constraints:
                 - required_csp_strike: {explicit_csp_strike}
+                - pending_csp_analysis_tickers: {pending_csp_tickers}
 
                 Trace so far:
                 {json.dumps(trace, indent=2)}
@@ -110,6 +118,7 @@ class ReActAgent:
                 - Treat deterministically extracted constraints as immutable.
                 - When required_csp_strike is present, pass it as target_strike to get_options_chain and as strike to analyze_cash_secured_put.
                 - Never silently substitute a different strike for an explicitly requested strike.
+                - For a cash-secured-put query, after selecting a contract from get_options_chain, call analyze_cash_secured_put for every ticker listed in pending_csp_analysis_tickers before returning a final answer.
                 - get_options_chain returns a filtered sample. Do not describe the sample's lowest or highest returned strike as the lowest or highest strike in the complete options chain.
                 - Format final answers as readable Markdown using short paragraphs and concise bullets when appropriate.
                 - Do not wrap tickers, dates, financial values, or percentages in backticks or code formatting.
@@ -282,6 +291,36 @@ class ReActAgent:
                     "data": error_payload,
                 }
                 return
+
+            if agent_step.action_type == "final_answer":
+                pending_csp_tickers = (
+                    find_csp_tickers_without_analysis_attempt(
+                        user_query,
+                        trace,
+                    )
+                )
+
+                if pending_csp_tickers:
+                    ticker_list = ", ".join(
+                        pending_csp_tickers
+                    )
+                    correction_payload = {
+                        "trace_id": trace_id,
+                        "step": step_number,
+                        "thought": (
+                            "Final answer deferred because "
+                            "cash-secured-put analysis is still "
+                            f"required for: {ticker_list}."
+                        ),
+                        "action_type": "workflow_correction",
+                    }
+                    trace.append(correction_payload)
+
+                    yield {
+                        "event": "thought",
+                        "data": correction_payload,
+                    }
+                    continue
 
             thought_payload = {
                 "trace_id": trace_id,
