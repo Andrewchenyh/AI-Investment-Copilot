@@ -25,10 +25,12 @@ ANSWER_CONCEPT_PATTERN_TEXT: Final[
         r"\b\d{4}-\d{2}-\d{2}\s+"
         r"\$?[\d,]+(?:\.\d+)?[-\s]+"
         r"strike\s+put\b",
+        r"\bexp\.?\s+\d{4}-\d{2}-\d{2}\b",
     ),
     "selected_dte": (
         r"\b\d+\s*[-–—]?\s*days?\s+to\s+expiration\b",
         r"\b\d+\s*DTE\b",
+        r"\bover\s+\d+\s+days?\b",
     ),
     "premium": (
         r"\bpremiums?\b",
@@ -63,7 +65,7 @@ ANSWER_CONCEPT_PATTERN_TEXT: Final[
     ),
     "lookback_period": (
         r"\blookback\b",
-        r"\b30[-\s](?:trading[-\s])?day\b",
+        r"\b30[-\s](?:trading[-\s])?days?\b",
     ),
     "comparison": (
         r"\bcompar(?:e|ed|ing|ison)\b",
@@ -82,6 +84,12 @@ ANSWER_CONCEPT_PATTERN_TEXT: Final[
         r"(?:retrieve|fetch|find)\s+"
         r"(?:\w+\s+){0,3}"
         r"(?:price|market)?\s*data\b",
+        r"\bno\s+(?:(?:price|market)\s+)?data\s+"
+        r"could\s+be\s+(?:retrieved|fetched|found)\b",
+        r"\bno\s+(?:(?:price|market)\s+)?data"
+        r",\s+(?:including|such\s+as)\s+"
+        r"[^,.!?\n]{1,120},\s+"
+        r"(?:is|was)\s+(?:available|found)\b",
     ),
 }
 
