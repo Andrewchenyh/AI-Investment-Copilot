@@ -3,6 +3,7 @@ import pytest
 from agents.query_constraints import (
     enforce_explicit_csp_strike,
     extract_explicit_csp_strike,
+    find_csp_tickers_without_analysis_attempt,
 )
 
 
@@ -134,3 +135,103 @@ def test_enforce_explicit_strike_does_nothing_without_constraint() -> None:
 
     assert constrained_args == original_args
     assert constrained_args is not original_args
+
+
+def test_find_csp_tickers_returns_successful_chain_without_analysis() -> None:
+    trace = [
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {"ticker": "msft"},
+            "success": True,
+        }
+    ]
+
+    pending_tickers = find_csp_tickers_without_analysis_attempt(
+        "Should I write a cash-secured put on MSFT?",
+        trace,
+    )
+
+    assert pending_tickers == ["MSFT"]
+
+
+def test_find_csp_tickers_handles_comparison_independently() -> None:
+    trace = [
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {"ticker": "ORCL"},
+            "success": True,
+        },
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {"ticker": "MSFT"},
+            "success": True,
+        },
+        {
+            "tool_name": "analyze_cash_secured_put",
+            "tool_args": {"ticker": "orcl"},
+            "success": True,
+        },
+    ]
+
+    pending_tickers = find_csp_tickers_without_analysis_attempt(
+        "Compare ORCL and MSFT cash-secured puts.",
+        trace,
+    )
+
+    assert pending_tickers == ["MSFT"]
+
+
+def test_find_csp_tickers_counts_failed_analysis_as_an_attempt() -> None:
+    trace = [
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {"ticker": "ORCL"},
+            "success": True,
+        },
+        {
+            "tool_name": "analyze_cash_secured_put",
+            "tool_args": {"ticker": "ORCL"},
+            "success": False,
+        },
+    ]
+
+    pending_tickers = find_csp_tickers_without_analysis_attempt(
+        "Analyze an ORCL CSP.",
+        trace,
+    )
+
+    assert pending_tickers == []
+
+
+def test_find_csp_tickers_ignores_failed_chain_lookup() -> None:
+    trace = [
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {"ticker": "FAKEFAKE"},
+            "success": False,
+        }
+    ]
+
+    pending_tickers = find_csp_tickers_without_analysis_attempt(
+        "Analyze a cash-secured put on FAKEFAKE.",
+        trace,
+    )
+
+    assert pending_tickers == []
+
+
+def test_find_csp_tickers_does_not_apply_to_non_csp_query() -> None:
+    trace = [
+        {
+            "tool_name": "get_options_chain",
+            "tool_args": {"ticker": "ORCL"},
+            "success": True,
+        }
+    ]
+
+    pending_tickers = find_csp_tickers_without_analysis_attempt(
+        "Show me ORCL's options chain.",
+        trace,
+    )
+
+    assert pending_tickers == []
