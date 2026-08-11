@@ -220,6 +220,25 @@ def test_validate_event_payloads_accepts_supported_events(
     assert validated_events == events
 
 
+def test_validate_event_payloads_accepts_workflow_correction_thought() -> None:
+    events = [
+        (
+            "thought",
+            {
+                "trace_id": "trace-123",
+                "step": 2,
+                "thought": (
+                    "Final answer deferred because cash-secured-put "
+                    "analysis is still required for: MSFT."
+                ),
+                "action_type": "workflow_correction",
+            },
+        )
+    ]
+
+    assert list(validate_event_payloads(events)) == events
+
+
 def test_validate_event_payloads_rejects_missing_required_field() -> None:
     events = [
         (
