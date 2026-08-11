@@ -40,6 +40,12 @@ _EXPLICIT_STRIKE_PATTERNS: tuple[
 )
 
 
+_CSP_QUERY_PATTERN = re.compile(
+    r"\b(?:cash[\s-]+secured\s+puts?|CSPs?)\b",
+    re.IGNORECASE,
+)
+
+
 def extract_explicit_csp_strike(
     query: str,
 ) -> float | None:
@@ -77,3 +83,43 @@ def enforce_explicit_csp_strike(
         constrained_args.pop("premium", None)
 
     return constrained_args
+
+
+def find_csp_tickers_without_analysis_attempt(
+    query: str,
+    trace: list[dict[str, Any]],
+) -> list[str]:
+    if _CSP_QUERY_PATTERN.search(query) is None:
+        return []
+
+    chain_tickers: set[str] = set()
+    analyzed_tickers: set[str] = set()
+
+    for item in trace:
+        tool_args = item.get("tool_args")
+        if not isinstance(tool_args, dict):
+            continue
+
+        ticker = tool_args.get("ticker")
+        if not isinstance(ticker, str):
+            continue
+
+        normalized_ticker = ticker.strip().upper()
+        if not normalized_ticker:
+            continue
+
+        if (
+            item.get("tool_name") == "get_options_chain"
+            and item.get("success") is True
+        ):
+            chain_tickers.add(normalized_ticker)
+
+        elif (
+            item.get("tool_name")
+            == "analyze_cash_secured_put"
+        ):
+            analyzed_tickers.add(normalized_ticker)
+
+    return sorted(
+        chain_tickers - analyzed_tickers
+    )
