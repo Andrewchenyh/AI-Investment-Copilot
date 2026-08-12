@@ -50,7 +50,9 @@ class GoldenQuery(BaseModel):
         min_length=1,
     )
     required_answer_literals: list[str] = Field(default_factory=list)
-
+    required_answer_literal_groups: list[list[str]] = Field(
+        default_factory=list,
+    )
     notes: str = Field(..., min_length=1)
 
     @field_validator("category", "query", "notes")
@@ -75,6 +77,39 @@ class GoldenQuery(BaseModel):
             )
 
         return values
+
+    @field_validator("required_answer_literal_groups")
+    @classmethod
+    def validate_answer_literal_groups(
+        cls,
+        groups: list[list[str]],
+    ) -> list[list[str]]:
+        for group in groups:
+            if not group:
+                raise ValueError(
+                    "required answer literal groups must not be empty"
+                )
+
+            if any(
+                not literal or literal != literal.strip()
+                for literal in group
+            ):
+                raise ValueError(
+                    "literal alternatives must be nonblank and trimmed"
+                )
+
+            normalized_literals = [
+                literal.casefold()
+                for literal in group
+            ]
+            if len(normalized_literals) != len(
+                set(normalized_literals)
+            ):
+                raise ValueError(
+                    "literal alternatives must not contain duplicates"
+                )
+
+        return groups
 
     @field_validator("required_answer_concepts")
     @classmethod
