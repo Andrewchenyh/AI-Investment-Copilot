@@ -133,6 +133,45 @@ def find_missing_answer_concepts(
     return missing_concepts
 
 
+def answer_contains_literal(
+    answer: str,
+    literal: str,
+) -> bool:
+    return (
+        re.search(
+            rf"(?<!\w){re.escape(literal)}(?!\w)",
+            answer,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def find_missing_answer_literals(
+    answer: str,
+    required_literals: list[str],
+) -> list[str]:
+    return [
+        literal
+        for literal in required_literals
+        if not answer_contains_literal(answer, literal)
+    ]
+
+
+def find_unsatisfied_answer_literal_groups(
+    answer: str,
+    required_groups: list[list[str]],
+) -> list[list[str]]:
+    return [
+        group
+        for group in required_groups
+        if not any(
+            answer_contains_literal(answer, literal)
+            for literal in group
+        )
+    ]
+
+
 def evaluate_record(
     record: dict[str, Any],
     agent: EvaluationAgent,
@@ -156,6 +195,11 @@ def evaluate_record(
         "required_answer_literals",
         [],
     )
+    required_answer_literal_groups = record.get(
+        "required_answer_literal_groups",
+        [],
+    )
+
     required_answer_concepts = record["required_answer_concepts"]
 
     unsatisfied_tool_calls = find_unsatisfied_tool_calls(
@@ -167,7 +211,16 @@ def evaluate_record(
         answer,
         required_answer_literals,
     )
-    answer_literals_pass = not missing_answer_literals
+    unsatisfied_answer_literal_groups = (
+        find_unsatisfied_answer_literal_groups(
+            answer,
+            required_answer_literal_groups,
+        )
+    )
+    answer_literals_pass = (
+        not missing_answer_literals
+        and not unsatisfied_answer_literal_groups
+    )
     missing_answer_concepts = find_missing_answer_concepts(
         answer,
         required_answer_concepts,
