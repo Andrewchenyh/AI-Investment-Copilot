@@ -96,22 +96,6 @@ def find_unsatisfied_tool_calls(
     return unsatisfied
 
 
-def find_missing_answer_literals(
-    answer: str,
-    required_literals: list[str],
-) -> list[str]:
-    return [
-        literal
-        for literal in required_literals
-        if re.search(
-            rf"(?<!\w){re.escape(literal)}(?!\w)",
-            answer,
-            flags=re.IGNORECASE,
-        )
-        is None
-    ]
-
-
 def find_missing_answer_concepts(
     answer: str,
     concepts: list[str],
@@ -268,6 +252,10 @@ def evaluate_record(
         "answer": answer,
         "required_answer_literals": required_answer_literals,
         "missing_answer_literals": missing_answer_literals,
+        "required_answer_literal_groups": required_answer_literal_groups,
+        "unsatisfied_answer_literal_groups": (
+            unsatisfied_answer_literal_groups
+        ),
         "required_answer_concepts": required_answer_concepts,
         "missing_answer_concepts": missing_answer_concepts,
         "trace": trace,
