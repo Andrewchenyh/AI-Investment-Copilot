@@ -16,7 +16,7 @@ from agents.query_constraints import (
 )
 from agents.schemas import AgentStep, ToolObservation
 
-DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 30_000
+DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 50_000
 DEFAULT_AGENT_RUNTIME_SECONDS = 120.0
 
 
@@ -119,6 +119,9 @@ class ReActAgent:
                 - When required_csp_strike is present, pass it as target_strike to get_options_chain and as strike to analyze_cash_secured_put.
                 - Never silently substitute a different strike for an explicitly requested strike.
                 - For a cash-secured-put query, after selecting a contract from get_options_chain, call analyze_cash_secured_put for every ticker listed in pending_csp_analysis_tickers before returning a final answer.
+                - For every successful analyze_cash_secured_put observation, the final answer must explicitly report the ticker, spot price, strike, expiration, premium, break-even price, and cash required.
+                - For comparisons, report those required fields separately for every analyzed ticker.
+                - Copy these financial values from the tool observation; do not recompute or estimate them.
                 - get_options_chain returns a filtered sample. Do not describe the sample's lowest or highest returned strike as the lowest or highest strike in the complete options chain.
                 - Format final answers as readable Markdown using short paragraphs and concise bullets when appropriate.
                 - Do not wrap tickers, dates, financial values, or percentages in backticks or code formatting.
