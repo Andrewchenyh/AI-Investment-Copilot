@@ -4,6 +4,7 @@ import os
 import time
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -18,6 +19,8 @@ from agents.schemas import AgentStep, ToolObservation
 
 DEFAULT_MODEL_REQUEST_TIMEOUT_MS = 50_000
 DEFAULT_AGENT_RUNTIME_SECONDS = 120.0
+DEFAULT_MODEL_TIMEOUT_RETRIES = 1
+DEFAULT_MODEL_TIMEOUT_RETRY_DELAY_SECONDS = 1.0
 
 
 class AgentStepValidationError(RuntimeError):
@@ -33,6 +36,10 @@ class ReActAgent:
         max_step_validation_retries: int = 1,
         model_request_timeout_ms: int = DEFAULT_MODEL_REQUEST_TIMEOUT_MS,
         max_runtime_seconds: float = DEFAULT_AGENT_RUNTIME_SECONDS,
+        max_model_timeout_retries: int = DEFAULT_MODEL_TIMEOUT_RETRIES,
+        model_timeout_retry_delay_seconds: float = (
+            DEFAULT_MODEL_TIMEOUT_RETRY_DELAY_SECONDS
+        ),
     ):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
@@ -52,6 +59,19 @@ class ReActAgent:
             raise ValueError(
                 "max_runtime_seconds must be finite and positive."
             )
+        if max_model_timeout_retries < 0:
+            raise ValueError(
+                "max_model_timeout_retries cannot be negative."
+            )
+
+        if (
+            not math.isfinite(model_timeout_retry_delay_seconds)
+            or model_timeout_retry_delay_seconds < 0
+        ):
+            raise ValueError(
+                "model_timeout_retry_delay_seconds must be finite "
+                "and non-negative."
+            )
 
         self.client = genai.Client(
             api_key=api_key,
@@ -65,6 +85,10 @@ class ReActAgent:
         self.max_step_validation_retries = max_step_validation_retries
         self.model_request_timeout_ms = model_request_timeout_ms
         self.max_runtime_seconds = max_runtime_seconds
+        self.max_model_timeout_retries = max_model_timeout_retries
+        self.model_timeout_retry_delay_seconds = (
+            model_timeout_retry_delay_seconds
+        )
 
     def _build_prompt(self, user_query: str, trace: list[dict[str, Any]]) -> str:
         tool_descriptions = self.tool_registry.describe_tools()
@@ -185,22 +209,44 @@ class ReActAgent:
         user_query: str,
         trace: list[dict[str, Any]],
     ) -> AgentStep:
-        last_error: ValidationError | None = None
-        total_attempts = self.max_step_validation_retries + 1
+        validation_failures = 0
+        timeout_failures = 0
 
-        for attempt in range(total_attempts):
+        while True:
             try:
                 return self._llm_step(
                     user_query=user_query,
                     trace=trace,
-                    is_validation_retry=attempt > 0,
+                    is_validation_retry=(
+                        validation_failures > 0
+                    ),
                 )
-            except ValidationError as exc:
-                last_error = exc
 
-        raise AgentStepValidationError(
-            f"The model returned an invalid AgentStep after {total_attempts} attempts."
-        ) from last_error
+            except httpx.TimeoutException:
+                if (
+                    timeout_failures
+                    >= self.max_model_timeout_retries
+                ):
+                    raise
+
+                timeout_failures += 1
+
+                if self.model_timeout_retry_delay_seconds > 0:
+                    time.sleep(
+                        self.model_timeout_retry_delay_seconds
+                    )
+
+            except ValidationError as exc:
+                validation_failures += 1
+
+                if (
+                    validation_failures
+                    > self.max_step_validation_retries
+                ):
+                    raise AgentStepValidationError(
+                        "The model returned an invalid AgentStep "
+                        f"after {validation_failures} attempts."
+                    ) from exc
 
     def _parse_tool_args(self, tool_args_json: str) -> dict[str, Any]:
         try:
