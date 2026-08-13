@@ -46,6 +46,7 @@ ANSWER_CONCEPT_PATTERN_TEXT: Final[
         r"\brequires?\s+\$?[\d,]+(?:\.\d+)?\s+"
         r"in\s+(?:cash|collateral)\b",
         r"\brequired\s+to\s+collateralize\b",
+        r"\bcollateral\s+(?:required|requirement)\b",
     ),
     "rsi_14": (
         r"\bRSI\s*(?:[-–]\s*)?"
