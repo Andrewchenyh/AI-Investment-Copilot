@@ -1,29 +1,71 @@
 # AI Investment Copilot
 
-AI Investment Copilot is an agentic investment research assistant built around a ReAct loop, structured financial tools, streaming FastAPI endpoints, evaluation, and observability.
+AI Investment Copilot is an end-to-end agentic investment research platform. A custom ReAct agent selects structured financial tools, grounds its conclusions in market-data observations, and streams its reasoning workflow through FastAPI to an interactive Streamlit dashboard.
 
-The project is designed to demonstrate applied AI engineering skills: tool use, structured outputs, backend service design, evals, caching, tracing, and a transparent demo UI.
+The project is designed to demonstrate applied AI engineering across agent orchestration, typed tool use, quantitative finance, evaluation, backend reliability, observability, and product-facing data visualization.
 
-> Educational research project only. This is not financial advice.
+> **Educational research project only. This is not financial advice.** Market data may be delayed, incomplete, or inaccurate. Verify all information independently before making financial decisions.
 
 ---
 
-## What It Does
+## Current Milestone
 
-Ask a question like:
+| Area | Latest verified result |
+|---|---|
+| Product | Interactive Streamlit research dashboard complete |
+| Automated tests | **419 passing pytest tests** |
+| Golden evaluation | **10/10 queries passed (100%)** |
+| LLM-as-judge | **5.0/5.0 average** across grounding, reasoning, hallucination control, and overall quality |
+| Judge failures | **0** |
+
+The golden pass/fail result is determined by deterministic contracts. LLM-as-judge scoring is an additional diagnostic signal and does not override those checks. See the [latest golden-evaluation result](evals/results/latest_golden_eval.json).
+
+---
+
+## Product Experience
+
+Ask questions such as:
 
 ```text
 Is it a good time to write a cash-secured put on ORCL?
 ```
 
-The system can:
+```text
+Is it a good time to write a $170 cash-secured put on ORCL?
+```
 
-- reason about which information it needs
-- call financial tools for current price, historical volatility, options chains, and cash-secured-put metrics
-- stream thoughts and tool calls to the UI in real time
-- produce a final answer grounded in tool observations
-- expose trace IDs, JSON logs, and metrics for debugging
-- evaluate agent behavior against a golden benchmark set
+```text
+Analyze AAPL using RSI 14 and a 50-day moving average.
+```
+
+```text
+Compare ORCL and MSFT for writing cash-secured puts.
+```
+
+The copilot can:
+
+- select and execute market-data, technical-analysis, volatility, options, and risk tools
+- preserve explicit user constraints such as ticker, strike, and expiration window
+- calculate cash-secured-put premium, collateral, break-even, returns, and downside buffers
+- compare multiple tickers using the same research workflow
+- handle unavailable tickers without inventing prices or option contracts
+- stream thoughts, tool calls, observations, corrections, and the final answer over SSE
+- expose the evidence and provenance behind every displayed financial value
+
+### Streamlit Research Dashboard
+
+The frontend is a thin client over the FastAPI streaming API. It contains:
+
+- a polished research brief with preset and free-form queries
+- live status, evidence-count, and tool-count metrics
+- a real-time agent activity timeline and trace ID
+- a grounded-evidence table built from successful tool observations
+- an expiration payoff chart with strike, spot, break-even, maximum profit, and maximum loss
+- an options-market-quality dashboard with bid/ask ranges, quote status, open interest, and volume by strike
+- a technical-indicator dashboard covering price positioning, RSI (14), and MACD
+- a developer trace for inspecting the complete agent workflow
+
+The charts are generated from validated tool outputs—not values parsed from the model's prose.
 
 ---
 
@@ -31,204 +73,235 @@ The system can:
 
 ```mermaid
 flowchart TD
-    UI["Streamlit Demo UI"] -->|"HTTP + SSE"| API["FastAPI Backend"]
+    UI["Streamlit Research Dashboard"] -->|"HTTP + SSE"| API["FastAPI API"]
 
-    API -->|"POST /analyze<br/>POST /compare"| SERVICE["Service Layer"]
-    API -->|"GET /history/{session_id}<br/>GET /metrics"| OPS["History + Metrics APIs"]
+    API --> AUTH["API Key + Redis Rate Limit"]
+    API --> SERVICE["Analysis / Comparison Service"]
+    API --> OPS["History + Metrics Endpoints"]
 
-    SERVICE --> AGENT["ReAct Agent Loop"]
-    AGENT -->|"structured AgentStep"| REGISTRY["Tool Registry"]
-    REGISTRY -->|"Pydantic validation"| TOOLS["Financial Tools"]
+    SERVICE --> AGENT["Custom ReAct Agent"]
+    AGENT --> STEP["Pydantic AgentStep"]
+    AGENT --> GUARDS["Constraint + Workflow Guards"]
+    AGENT --> REGISTRY["Typed Tool Registry"]
 
-    TOOLS --> PRICE["get_current_price"]
-    TOOLS --> VOL["get_historical_volatility"]
-    TOOLS --> CHAIN["get_options_chain"]
-    TOOLS --> CSP["analyze_cash_secured_put"]
+    REGISTRY --> PRICE["Current Price"]
+    REGISTRY --> VOL["Historical Volatility"]
+    REGISTRY --> TECH["Technical Indicators"]
+    REGISTRY --> CHAIN["Options Chain"]
+    REGISTRY --> CSP["Cash-Secured Put Analysis"]
 
-    PRICE --> DATA["Market Data + Quant Calculations"]
+    PRICE --> DATA["Market Data + Deterministic Quant Logic"]
     VOL --> DATA
+    TECH --> DATA
     CHAIN --> DATA
     CSP --> DATA
 
-    REDIS["Redis"] <--> API
+    REDIS["Redis"] <--> AUTH
     REDIS <--> REGISTRY
     REDIS <--> OPS
 
-    OBS["Trace IDs<br/>JSON logs<br/>Latency metrics"] <-.-> API
-    OBS <-.-> AGENT
-    OBS <-.-> REGISTRY
+    SERVICE --> OBS["Trace IDs + JSON Logs + Metrics"]
+    REGISTRY --> OBS
 ```
 
-The Streamlit frontend is a thin client. It does not run agent logic directly; it calls the FastAPI backend over HTTP and Server-Sent Events.
+### Request Lifecycle
+
+```text
+User query
+  -> FastAPI authentication and rate limit
+  -> ReAct thought
+  -> validated tool call
+  -> deterministic tool execution
+  -> structured observation
+  -> grounded final-answer synthesis
+  -> streamed research brief and visual evidence
+```
 
 ---
 
-## Key Features
+## Engineering Highlights
 
-### ReAct Agent Loop
+### Custom ReAct Agent
 
 The agent follows a structured loop:
 
 ```text
-reason -> choose tool -> execute tool -> observe result -> continue or answer
+Thought -> Tool Call -> Observation -> Thought -> ... -> Final Answer
 ```
 
-The loop includes max-step guardrails, structured model outputs, allowed-tool dispatch through a registry, tool error handling, and trace capture.
+Every model response is validated as an `AgentStep`. A step must select exactly one action: a typed tool call or a non-empty final answer.
 
-### Strict Tool Contracts
+The loop includes:
 
-Tools are registered with:
+- maximum-step and total-runtime guardrails
+- model-request timeouts with one bounded retry for transient HTTP timeouts
+- one bounded retry for invalid structured model output
+- safe tool-error observations instead of process crashes
+- workflow-correction events when a CSP answer is attempted before analysis
+- complete trace capture for debugging and UI streaming
 
-- name
-- description
-- Pydantic input schema
-- Pydantic output schema
-- deterministic Python function
+### Typed Tool Registry
 
-This keeps the LLM from passing arbitrary arguments into finance code and makes tool behavior easier to test.
+Each registered tool defines:
 
-### Options and Risk Tools
+- a unique name and model-facing description
+- a Pydantic input model
+- a Pydantic output model
+- a deterministic Python function
 
-The current options workflow supports:
+The registry validates inputs and outputs, controls which tools the model can execute, records latency and success metrics, and caches eligible results.
 
-- current price lookup
-- realized historical volatility
-- options chain retrieval
-- target-strike and reference-price chain filtering
-- smarter default expiration selection
-- cash-secured-put payoff metrics
+| Tool | Purpose |
+|---|---|
+| `get_current_price` | Retrieve the latest available daily closing price and effective date |
+| `get_historical_volatility` | Calculate annualized realized volatility over a validated lookback window |
+| `analyze_technical_indicators` | Compute SMA, EMA, RSI, MACD, and Bollinger Bands |
+| `get_options_chain` | Select and return a validated sample of put or call contracts |
+| `analyze_cash_secured_put` | Calculate payoff, collateral, return, break-even, and risk metrics |
 
-The `analyze_cash_secured_put` tool computes:
+### Deterministic CSP Safeguards
 
-- spot price
-- strike
-- premium
-- break-even
-- max profit
-- cash required
-- simple return
-- annualized return
-- downside buffer to strike and break-even
+The model plans the workflow, but deterministic code protects important financial constraints:
 
-### FastAPI Backend
+- explicit strikes are extracted from the user query and enforced on chain retrieval and CSP analysis
+- default option selection uses a defined expiration policy and reference-price filtering
+- bid/ask data is classified as normal, wide, crossed, or unavailable
+- premium selection records whether it came from user input, a bid/ask midpoint, or the last price
+- the agent must attempt CSP analysis after selecting an options contract
+- final CSP answers are instructed to report ticker, spot, strike, expiration, premium, break-even, and required cash
+- comparisons report the required fields separately for each analyzed ticker
 
-Implemented endpoints:
+### Quantitative Outputs
 
-```text
-GET  /
-POST /analyze
-POST /analyze/stream
-POST /compare
-POST /compare/stream
-GET  /history/{session_id}
-GET  /metrics
-```
+The CSP analysis calculates:
 
-The streaming endpoints use Server-Sent Events so clients can display live thoughts, tool calls, tool results, and final answers.
+- spot price and observation date
+- strike and expiration
+- premium and quote provenance
+- break-even price
+- cash collateral required
+- maximum profit and maximum loss
+- simple return on secured cash
+- simple non-compounded annualized return
+- distance to strike and break-even
 
-### Redis Caching, Rate Limiting, and History
-
-Redis is used for:
-
-- API rate limiting by API key
-- caching repeated tool responses
-- storing session history
-
-This reduces duplicate market-data calls and adds basic backend production hygiene.
-
-### Streamlit Demo UI
-
-The Streamlit UI includes:
-
-- preset demo queries
-- live streamed final answer
-- trace ID display
-- live thoughts
-- tool call/result panel
-- grounded numbers table extracted from tool observations
-- raw trace inspection
+Limitations such as fees, taxes, slippage, dividends, and early assignment are explicitly recorded by the tool.
 
 ---
 
-## Evaluation
+## FastAPI Interface
 
-AI Investment Copilot includes a layered evaluation system for both deterministic finance logic and LLM behavior.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/` | Health-style service response |
+| `POST` | `/analyze` | Run one analysis and return JSON |
+| `POST` | `/analyze/stream` | Stream one analysis over SSE |
+| `POST` | `/compare` | Compare 2–5 tickers and return JSON |
+| `POST` | `/compare/stream` | Stream a comparison over SSE |
+| `GET` | `/history/{session_id}` | Retrieve saved session analyses |
+| `GET` | `/metrics` | Retrieve in-process request and tool metrics |
 
-### Evaluation Layers
+All analysis, comparison, history, and metrics endpoints require the `X-API-Key` header.
 
-**1. Deterministic Unit Tests**
+---
 
-The financial calculation layer is tested with `pytest`, including:
+## Redis and Graceful Degradation
 
-- cash-secured-put payoff metrics
-- annualized return calculations
-- technical indicators such as SMA, EMA, MACD, Bollinger Bands, and RSI
-- mocked market-data and options-tool wrappers
-- metrics/report/storage utilities
+Redis supports:
 
-**2. Golden Dataset**
+- fixed-window API rate limiting
+- five-minute caching for eligible tool responses
+- 24-hour session-history storage
 
-The project includes a JSONL benchmark set covering:
+The core analysis path remains available during a Redis outage:
 
-- cash-secured put analysis
-- explicit strike preservation
-- explicit days-to-expiration window preservation
-- technical-indicator analysis
-- volatility questions
-- ticker comparison
-- invalid ticker handling
-- ambiguous company-name queries
+- rate limiting fails open and emits a structured event
+- cache read/write failures are logged and the tool executes normally
+- history-write failures are logged without replacing a successful analysis
 
-**3. Deterministic Agent Checks**
+History retrieval still requires Redis because Redis is the source of that data.
 
-The eval runner executes golden queries and checks:
+---
 
-- successful agent completion
-- required tool calls, arguments, outcomes, and call counts
-- exact user-supplied answer literals
-- required answer concepts with accepted alternative phrasings
+## Evaluation System
 
-Failed cases report unsatisfied tool contracts, missing answer literals,
-missing answer concepts, and agent or judge errors. LLM-as-judge scores are
-reported separately and do not change the deterministic pass/fail result.
+The evaluation stack separates deterministic correctness from probabilistic quality scoring.
 
-**4. LLM-as-Judge**
+### 1. Pytest Suite
 
-A judge model scores final answers against the tool trace on:
+The current suite contains **419 passing tests** covering:
 
-- factual grounding
-- reasoning quality
-- hallucination control
-- overall quality
+- agent-step schemas, validation retries, timeout retries, and runtime guards
+- deterministic strike preservation and CSP workflow correction
+- risk metrics, payoff curves, and technical indicators
+- market-data and options-tool wrappers with mocked providers
+- tool registry validation, caching, and observability
+- Redis failure behavior, rate limiting, history, and API services
+- SSE parsing and protocol validation
+- Streamlit evidence builders and Plotly chart models
+- golden-query schemas, matchers, persistence, and reports
 
-The judge is instructed to use only the provided query, trace, and final answer rather than external market knowledge.
-
-**5. Persistence and Reports**
-
-Eval runs can be saved to a local SQLite database and converted into Markdown reports.
-
-### Running Evaluations
-
-
-Run deterministic tests:
+Run it with:
 
 ```bash
 python -m pytest
 ```
 
-Run golden evals with judge scoring and persistence:
+### 2. Golden Query Dataset
+
+The 10-case JSONL benchmark covers:
+
+- vague CSP selection
+- explicit strike preservation
+- explicit 30–60 DTE constraints
+- technical analysis
+- historical volatility
+- multi-ticker CSP comparison
+- invalid ticker handling
+- company-name-to-ticker resolution
+
+### 3. Deterministic Release Checks
+
+Each golden case evaluates four contracts:
+
+- agent status is successful
+- required tool calls match expected names, arguments, outcomes, and call counts
+- required answer literals or accepted literal alternatives are preserved
+- required financial concepts appear using registered language patterns
+
+Failures identify unsatisfied tool calls, missing literals, unsatisfied alternative groups, missing concepts, and agent errors.
+
+### 4. LLM-as-Judge
+
+An optional Gemini judge scores each answer against only the query, tool trace, and final response:
+
+- factual grounding
+- reasoning quality
+- hallucination control
+- overall answer quality
+
+Judge failures are isolated from deterministic evaluation. Judge scores are saved for analysis but do not change the golden pass/fail result.
+
+### 5. Persistence and Reporting
+
+Evaluation runs can be stored in SQLite and converted into Markdown reports. The runner waits between cases by default to reduce provider rate-limit pressure.
+
+Run all golden cases with judge scoring and persistence:
 
 ```bash
-python -m evals.run_golden_eval --limit 10 --judge --save-db
+python -m evals.run_golden_eval \
+  --limit 10 \
+  --judge \
+  --save-db
 ```
 
-List saved eval runs:
+List persisted runs:
 
 ```bash
 python -m evals.list_runs
 ```
 
-Generate a Markdown report:
+Generate a report from the latest persisted run:
 
 ```bash
 python -m evals.generate_report
@@ -238,73 +311,23 @@ python -m evals.generate_report
 
 ## Observability
 
-The backend includes trace IDs, structured logs, and lightweight metrics.
+Every request receives a `trace_id` that is propagated through:
 
-### Trace IDs
+- JSON responses and SSE events
+- ReAct thought and correction events
+- tool calls and observations
+- session-history records
+- structured JSON logs
 
-Every request receives a `trace_id`, which is propagated through:
+Tool logs include:
 
-- API responses
-- streaming SSE events
-- ReAct trace entries
-- tool observations
-- saved session history
-- JSON logs
+- tool name and trace ID
+- success and cache-hit state
+- latency in milliseconds
+- summarized inputs and outputs
+- error type and message on failure
 
-Example response:
-
-```json
-{
-  "status": "success",
-  "trace_id": "acde7819-9c63-4c06-bd5d-73d9a0eb53c4",
-  "answer": "...",
-  "trace": []
-}
-```
-
-### Structured Logs
-
-Tool execution logs include:
-
-- `trace_id`
-- `tool_name`
-- `latency_ms`
-- `success`
-- `cache_hit`
-- input summary
-- output summary or error
-
-### Metrics
-
-The protected `/metrics` endpoint returns request and tool metrics:
-
-```bash
-curl -X GET "http://127.0.0.1:8000/metrics" \
-  -H "X-API-Key: dev-secret-key"
-```
-
-Example:
-
-```json
-{
-  "requests": {
-    "count": 2,
-    "p50_latency_ms": 1735.11,
-    "p95_latency_ms": 2567.42
-  },
-  "tools": {
-    "count": 2,
-    "failure_rate": 0.0,
-    "cache_hit_rate": 0.5,
-    "success_count": 2,
-    "failure_count": 0,
-    "cache_hit_count": 1,
-    "cache_miss_count": 1
-  }
-}
-```
-
-Current metrics are in-process and reset when the server restarts. They are designed to be exportable to a production metrics system later.
+The protected `/metrics` endpoint reports in-process request and tool statistics, including latency percentiles, failure rate, and cache-hit rate. Metrics reset when the API process restarts.
 
 ---
 
@@ -312,18 +335,20 @@ Current metrics are in-process and reset when the server restarts. They are desi
 
 | Layer | Technology |
 |---|---|
+| Language | Python 3.12 |
 | LLM | Gemini API |
-| Agent | Custom ReAct loop |
-| API | FastAPI, Server-Sent Events |
-| Schemas | Pydantic |
-| Frontend | Streamlit |
-| Data | yfinance |
+| Agent | Custom ReAct loop with structured outputs |
+| API | FastAPI, Server-Sent Events, Uvicorn |
+| Validation | Pydantic |
+| Frontend | Streamlit, Plotly |
+| Market Data | yfinance, pandas, NumPy |
+| Quant Logic | Deterministic Python analytics |
 | Cache / Rate Limit / History | Redis |
 | Eval Persistence | SQLite |
 | Testing | pytest, pytest-mock |
 | Packaging | Docker, Docker Compose |
 | CI | GitHub Actions |
-| Observability | trace IDs, JSON logs, in-process metrics |
+| Observability | Trace IDs, structured JSON logs, in-process metrics |
 
 ---
 
@@ -332,27 +357,39 @@ Current metrics are in-process and reset when the server restarts. They are desi
 ```text
 .
 ├── agents/
-│   ├── react_agent.py
-│   └── schemas.py
+│   ├── query_constraints.py     # Deterministic user-constraint guards
+│   ├── react_agent.py           # ReAct loop, retries, streaming events
+│   └── schemas.py               # Structured agent-step contracts
 ├── analysis/
-│   ├── risk_metrics.py
-│   └── stock_analysis.py
+│   ├── risk_metrics.py          # CSP payoff and return calculations
+│   └── stock_analysis.py        # Technical-indicator calculations
 ├── api/
-│   ├── app.py
-│   ├── auth.py
-│   ├── history.py
-│   ├── rate_limit.py
+│   ├── app.py                   # FastAPI routes
+│   ├── auth.py                  # API-key authentication
+│   ├── history.py               # Redis session history
+│   ├── rate_limit.py            # Redis-backed rate limiting
 │   ├── redis_client.py
 │   ├── schemas.py
-│   └── service.py
+│   └── service.py               # Async service and SSE orchestration
 ├── apps/
-│   └── streamlit_app.py
+│   ├── assets/styles.css        # Dashboard visual system
+│   ├── activity_timeline.py
+│   ├── charts.py                # CSP and technical Plotly figures
+│   ├── csp_payoff.py
+│   ├── grounded_evidence.py
+│   ├── options_charts.py
+│   ├── options_liquidity.py
+│   ├── sse_client.py
+│   ├── streamlit_app.py
+│   └── technical_snapshot.py
 ├── evals/
+│   ├── concept_patterns.py      # Registered semantic answer patterns
 │   ├── generate_report.py
 │   ├── golden_queries.jsonl
 │   ├── judge.py
 │   ├── load_golden.py
 │   ├── run_golden_eval.py
+│   ├── schemas.py
 │   └── store_results.py
 ├── observability/
 │   ├── logging.py
@@ -363,8 +400,12 @@ Current metrics are in-process and reset when the server restarts. They are desi
 │   ├── market_data.py
 │   ├── options_tools.py
 │   ├── registry.py
-│   └── setup_registry.py
+│   ├── setup_registry.py
+│   └── technical_analysis_tools.py
 ├── tests/
+├── .github/workflows/
+│   ├── ci.yml
+│   └── eval.yml
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -374,44 +415,76 @@ Current metrics are in-process and reset when the server restarts. They are desi
 
 ## Local Setup
 
-### 1. Install Dependencies
+### Prerequisites
+
+- Python 3.12
+- a Gemini API key
+- Redis for rate limiting, caching, and session history
+
+### 1. Create and Activate a Virtual Environment
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate
 ```
 
-### 2. Configure Environment
+On Windows PowerShell:
 
-Create a `.env` file:
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+### 2. Install Dependencies
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+### 3. Configure Environment Variables
+
+Create a `.env` file in the project root:
 
 ```env
-GEMINI_API_KEY=your_gemini_key
+GEMINI_API_KEY=your-gemini-api-key
 COPILOT_API_KEY=dev-secret-key
 REDIS_URL=redis://localhost:6379/0
 API_BASE_URL=http://127.0.0.1:8000
 ```
 
-### 3. Run Redis
+Do not commit `.env` or real credentials.
 
-If running Redis locally:
+### 4. Start Redis
+
+With a local Redis installation:
 
 ```bash
 redis-server
 ```
 
-Or use Docker Compose as shown below.
-
-### 4. Run FastAPI
+Or start only the Compose Redis service:
 
 ```bash
-uvicorn api.app:app --reload
+docker compose up redis
 ```
 
-### 5. Run Streamlit
+### 5. Start FastAPI
 
 ```bash
-streamlit run apps/streamlit_app.py
+python -m uvicorn api.app:app --reload
 ```
+
+The API will be available at `http://127.0.0.1:8000`.
+
+### 6. Start Streamlit
+
+In a second terminal with the same environment configured:
+
+```bash
+python -m streamlit run apps/streamlit_app.py
+```
+
+Streamlit will print the local dashboard URL, normally `http://localhost:8501`.
 
 ---
 
@@ -423,7 +496,7 @@ Build the backend image:
 docker build -t ai-investment-copilot-api .
 ```
 
-Run with a local `.env` file:
+Run the backend with a local environment file:
 
 ```bash
 docker run --rm \
@@ -432,11 +505,13 @@ docker run --rm \
   ai-investment-copilot-api
 ```
 
-Run FastAPI and Redis together:
+Run the FastAPI backend and Redis together:
 
 ```bash
 docker compose up --build
 ```
+
+The current Docker image packages the backend. Run Streamlit separately using the local command above.
 
 ---
 
@@ -451,7 +526,7 @@ curl -X POST "http://127.0.0.1:8000/analyze" \
   -d '{"session_id":"demo-session","query":"What is ORCL recent historical volatility?"}'
 ```
 
-### Streaming Analyze
+### Stream an Analysis
 
 ```bash
 curl -N -X POST "http://127.0.0.1:8000/analyze/stream" \
@@ -460,56 +535,87 @@ curl -N -X POST "http://127.0.0.1:8000/analyze/stream" \
   -d '{"session_id":"demo-session","query":"Is it a good time to write a cash-secured put on ORCL?"}'
 ```
 
-### Compare
+### Compare Tickers
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/compare" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: dev-secret-key" \
-  -d '{"tickers":["ORCL","MSFT"],"question":"Which one looks better for writing cash-secured puts?","session_id":"demo-session"}'
+  -d '{"tickers":["ORCL","MSFT"],"question":"Which looks better for writing cash-secured puts?","session_id":"demo-session"}'
 ```
 
-### History
+### Retrieve History
 
 ```bash
 curl -X GET "http://127.0.0.1:8000/history/demo-session" \
   -H "X-API-Key: dev-secret-key"
 ```
 
----
+### Inspect Metrics
 
-## CI
-
-GitHub Actions is configured for:
-
-- dependency installation
-- `pytest`
-- Docker image build
-- manual golden eval workflow with uploaded artifacts
-
-Live evals are kept as a manual workflow because they call external APIs and may incur model cost.
+```bash
+curl -X GET "http://127.0.0.1:8000/metrics" \
+  -H "X-API-Key: dev-secret-key"
+```
 
 ---
 
-## Roadmap Status
+## Continuous Integration
 
-| Phase | Goal | Status |
-|---|---|---|
-| 1 | ReAct agent loop, tool registry, Pydantic tool contracts, finance tools | Complete |
-| 2 | FastAPI, SSE streaming, API keys, Redis rate limiting/cache/history | Complete |
-| 3 | Tests, golden dataset, LLM judge, SQLite persistence, reports | Complete |
-| 4 | Docker, Compose, CI, manual eval workflow | Core complete, full AWS/Terraform deferred |
-| 5 | Trace IDs, structured logs, metrics | Complete |
-| 6 | Streamlit polish, README/case study, diagrams/screenshots | In progress |
+The main GitHub Actions workflow runs on pushes to `main` and includes:
+
+1. dependency installation on Python 3.12
+2. the complete pytest suite with a Redis service container
+3. a Docker image build after tests succeed
+
+A separate manual workflow runs golden evaluations with an optional judge, persists the run to SQLite, generates a Markdown report, and uploads the JSON, database, and report as workflow artifacts. Live evals remain manual because they call an external model API and may consume quota.
 
 ---
 
-## Design Decisions
+## Current Scope and Limitations
 
-- **LLM plans, tools compute.** The model decides which tool to call, but deterministic Python functions compute financial metrics.
-- **Trace-first debugging.** Every request has a `trace_id` so failures can be followed through API, agent, and tool layers.
-- **Evaluation before scale.** The project includes eval infrastructure before expanding the benchmark set.
-- **Cloud IaC deferred.** Heavy AWS/Terraform work is intentionally deferred to prioritize applied AI engineering, evals, observability, and demo quality.
+- The project is a research and engineering demonstration, not a brokerage or trade-execution system.
+- It does not provide personalized financial advice or guarantee investment outcomes.
+- Market and options data come from yfinance and may be delayed or incomplete.
+- Options analysis uses sampled contracts and simplified return assumptions.
+- Annualized CSP return is simple and non-compounded.
+- Fees, taxes, execution slippage, dividends, and early assignment are not fully modeled.
+- In-process metrics reset when the API restarts.
+- LLM output remains probabilistic even with structured tools, safeguards, and evals.
+
+---
+
+## Roadmap
+
+### Completed
+
+- custom ReAct agent and Pydantic tool registry
+- price, volatility, technical-analysis, options-chain, and CSP tools
+- FastAPI JSON and SSE interfaces
+- Redis-backed rate limiting, caching, and session history
+- structured logging, trace propagation, and metrics
+- Docker backend, Docker Compose, and GitHub Actions CI
+- interactive Streamlit dashboard with technical, options, and payoff visualizations
+- 419-test automated suite and 10-query golden benchmark
+- optional LLM-as-judge, SQLite persistence, and Markdown reporting
+
+### Next
+
+- public deployment and recorded product demo
+- README screenshots and a concise engineering case study
+- broader multi-turn and adversarial evaluation coverage
+- deeper production hardening only where it materially improves the public demo
+
+---
+
+## Design Principles
+
+- **LLM plans; tools compute.** Financial values come from typed tools and deterministic calculations.
+- **Evidence before prose.** The UI renders provenance and charts from tool observations rather than trusting generated text.
+- **Constraints are executable.** Explicit strikes and required CSP workflow steps are enforced in code.
+- **Deterministic evals gate quality.** LLM-as-judge adds context but does not control pass/fail.
+- **Failures should degrade safely.** Retries are bounded, tool failures become observations, and Redis is not a single point of failure for analysis.
+- **Demo value before infrastructure theater.** The roadmap prioritizes a finished, inspectable AI product over premature cloud complexity.
 
 ---
 
