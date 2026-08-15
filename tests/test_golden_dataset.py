@@ -80,9 +80,9 @@ def test_case_specific_answer_contracts_use_registered_semantics() -> None:
     ]
 
     oracle_record = records_by_id["ambiguous_company_name"]
-    assert oracle_record["required_answer_literals"] == [
-        "Oracle",
-        "ORCL",
+    assert oracle_record["required_answer_literals"] == []
+    assert oracle_record["required_answer_literal_groups"] == [
+        ["Oracle", "ORCL"],
     ]
 
 
@@ -242,6 +242,52 @@ def test_all_golden_tool_references_are_registered() -> None:
             },
             id="duplicate-answer-literals",
         ),
+        pytest.param(
+            {
+                "id": "empty_literal_group",
+                "category": "query_understanding",
+                "query": "Analyze Oracle.",
+                "required_tool_calls": [
+                    {"tool_name": "get_current_price"}
+                ],
+                "required_answer_concepts": ["spot_price"],
+                "required_answer_literal_groups": [[]],
+                "notes": "Literal groups cannot be empty.",
+            },
+            id="empty-answer-literal-group",
+        ),
+        pytest.param(
+            {
+                "id": "blank_literal_alternative",
+                "category": "query_understanding",
+                "query": "Analyze Oracle.",
+                "required_tool_calls": [
+                    {"tool_name": "get_current_price"}
+                ],
+                "required_answer_concepts": ["spot_price"],
+                "required_answer_literal_groups": [
+                    ["Oracle", " "]
+                ],
+                "notes": "Literal alternatives cannot be blank.",
+            },
+            id="blank-answer-literal-alternative",
+        ),
+        pytest.param(
+            {
+                "id": "duplicate_literal_alternatives",
+                "category": "query_understanding",
+                "query": "Analyze Oracle.",
+                "required_tool_calls": [
+                    {"tool_name": "get_current_price"}
+                ],
+                "required_answer_concepts": ["spot_price"],
+                "required_answer_literal_groups": [
+                    ["ORCL", "orcl"]
+                ],
+                "notes": "Literal alternatives must be unique.",
+            },
+            id="duplicate-answer-literal-alternatives",
+        ),
     ],
 )
 def test_load_golden_queries_rejects_invalid_schema(
@@ -313,6 +359,9 @@ def test_loads_structured_expectations(tmp_path: Path) -> None:
             }
         ],
         "required_answer_literals": ["AAPL"],
+        "required_answer_literal_groups": [
+            ["Apple", "AAPL"]
+        ],
         "required_answer_concepts": ["sma_50"],
         "notes": "Tests structured evaluation expectations.",
     }
@@ -334,4 +383,7 @@ def test_loads_structured_expectations(tmp_path: Path) -> None:
         }
     ]
     assert loaded_record["required_answer_literals"] == ["AAPL"]
+    assert loaded_record["required_answer_literal_groups"] == [
+        ["Apple", "AAPL"]
+    ]
     assert loaded_record["required_answer_concepts"] == ["sma_50"]
