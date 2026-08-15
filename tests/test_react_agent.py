@@ -21,6 +21,36 @@ def terminal_event(agent: ReActAgent) -> dict:
     return events[-1]
 
 
+def test_prompt_requires_complete_csp_answer_fields() -> None:
+    class FakeRegistry:
+        def describe_tools(self) -> str:
+            return "analyze_cash_secured_put"
+
+    agent = object.__new__(ReActAgent)
+    agent.tool_registry = FakeRegistry()
+
+    prompt = agent._build_prompt(
+        "Compare ORCL and MSFT cash-secured puts.",
+        [],
+    )
+
+    required_fields = (
+        "ticker",
+        "spot price",
+        "strike",
+        "expiration",
+        "premium",
+        "break-even price",
+        "cash required",
+    )
+    assert all(field in prompt for field in required_fields)
+    assert (
+        "report those required fields separately for every analyzed ticker"
+        in prompt
+    )
+    assert "do not recompute or estimate them" in prompt
+
+
 def test_agent_configures_default_model_request_timeout(
     monkeypatch,
     mocker,
