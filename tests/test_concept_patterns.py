@@ -105,6 +105,14 @@ def test_compiled_catalog_matches_text_catalog() -> None:
             "cash_required",
         ),
         (
+            "Collateral Required: 15,000.00 dollars.",
+            "cash_required",
+        ),
+        (
+            "The collateral requirement is $50,000.",
+            "cash_required",
+        ),
+        (
             "The RSI (14) is currently neutral.",
             "rsi_14",
         ),
@@ -232,6 +240,10 @@ def test_concept_patterns_accept_expected_language_variants(
         (
             "The moving average is rising.",
             "sma_50",
+        ),
+        (
+            "This put is fully collateralized.",
+            "cash_required",
         ),
     ],
 )
