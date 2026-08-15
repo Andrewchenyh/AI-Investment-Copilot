@@ -6,6 +6,7 @@ from evals.run_golden_eval import (
     extract_tools_used,
     find_missing_answer_concepts,
     find_missing_answer_literals,
+    find_unsatisfied_answer_literal_groups,
     find_unsatisfied_tool_calls,
 )
 
@@ -47,6 +48,82 @@ def test_answer_literals_are_case_insensitive_and_report_missing() -> None:
         "The ORCL strike is 1700.",
         ["170"],
     ) == ["170"]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Oracle is trading at 151.05.",
+        "ORCL is trading at 151.05.",
+        "orcl is trading at 151.05.",
+    ],
+)
+def test_answer_literal_group_accepts_any_alternative(
+    answer: str,
+) -> None:
+    assert find_unsatisfied_answer_literal_groups(
+        answer,
+        [["Oracle", "ORCL"]],
+    ) == []
+
+
+def test_answer_literal_groups_require_one_match_from_every_group() -> None:
+    groups = [
+        ["Oracle", "ORCL"],
+        ["Microsoft", "MSFT"],
+    ]
+
+    assert find_unsatisfied_answer_literal_groups(
+        "ORCL is trading at 151.05.",
+        groups,
+    ) == [["Microsoft", "MSFT"]]
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected_pass", "expected_unsatisfied"),
+    [
+        ("ORCL current price is 151.05.", True, []),
+        ("Oracle current price is 151.05.", True, []),
+        (
+            "The company current price is 151.05.",
+            False,
+            [["Oracle", "ORCL"]],
+        ),
+    ],
+)
+def test_evaluate_record_applies_answer_literal_groups(
+    answer: str,
+    expected_pass: bool,
+    expected_unsatisfied: list[list[str]],
+) -> None:
+    class FakeAgent:
+        def ask(self, user_query: str, trace_id: str) -> dict:
+            return {
+                "status": "success",
+                "answer": answer,
+                "trace": [],
+            }
+
+    record = {
+        "id": "literal_group_test",
+        "category": "query_understanding",
+        "query": "Analyze Oracle.",
+        "required_tool_calls": [],
+        "required_answer_literals": [],
+        "required_answer_literal_groups": [["Oracle", "ORCL"]],
+        "required_answer_concepts": ["spot_price"],
+    }
+
+    result = evaluate_record(record, FakeAgent())
+
+    assert result["checks"]["answer_literals_pass"] is expected_pass
+    assert result["required_answer_literal_groups"] == [
+        ["Oracle", "ORCL"]
+    ]
+    assert result["unsatisfied_answer_literal_groups"] == (
+        expected_unsatisfied
+    )
+    assert result["passed"] is expected_pass
 
 
 def test_tool_contract_matches_arguments_and_success() -> None:
