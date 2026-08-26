@@ -53,3 +53,6 @@ yfinance==1.2.0
 fastapi==0.115.12
 uvicorn==0.30.6
 redis==5.0.8
+alembic==1.19.1
+psycopg[binary]==3.3.4
+SQLAlchemy==2.0.52
