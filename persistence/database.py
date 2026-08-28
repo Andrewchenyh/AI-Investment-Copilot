@@ -21,9 +21,7 @@ def get_database_url() -> str:
     if not database_url:
         raise ValueError("DATABASE_URL is not configured.")
 
-    if not database_url.startswith(
-        POSTGRESQL_URL_PREFIX
-    ):
+    if not database_url.startswith(POSTGRESQL_URL_PREFIX):
         raise ValueError(
             "DATABASE_URL must use the "
             "'postgresql+psycopg://' driver."
@@ -34,9 +32,7 @@ def get_database_url() -> str:
 
 class Database:
     def __init__(self, database_url: str) -> None:
-        if not database_url.startswith(
-            POSTGRESQL_URL_PREFIX
-        ):
+        if not database_url.startswith(POSTGRESQL_URL_PREFIX):
             raise ValueError(
                 "database_url must use the "
                 "'postgresql+psycopg://' driver."
