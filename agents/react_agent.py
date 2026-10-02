@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 from pydantic import ValidationError
 
 from agents.query_constraints import (
@@ -222,19 +222,17 @@ class ReActAgent:
                     ),
                 )
 
-            except httpx.TimeoutException:
-                if (
-                    timeout_failures
-                    >= self.max_model_timeout_retries
-                ):
+            except (httpx.TimeoutException, errors.ServerError) as exc:
+                if isinstance(exc, errors.ServerError) and exc.code != 503:
+                    raise
+
+                if timeout_failures >= self.max_model_timeout_retries:
                     raise
 
                 timeout_failures += 1
 
                 if self.model_timeout_retry_delay_seconds > 0:
-                    time.sleep(
-                        self.model_timeout_retry_delay_seconds
-                    )
+                    time.sleep(self.model_timeout_retry_delay_seconds)
 
             except ValidationError as exc:
                 validation_failures += 1
