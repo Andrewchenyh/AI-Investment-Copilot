@@ -338,6 +338,23 @@ class ReActAgent:
                     "data": error_payload,
                 }
                 return
+            except errors.ServerError as exc:
+                if exc.code != 503:
+                    raise
+
+                yield {
+                    "event": "error",
+                    "data": {
+                        "status": "error",
+                        "trace_id": trace_id,
+                        "message": (
+                            "The AI provider is temporarily busy. "
+                            "Please try again in a moment."
+                        ),
+                        "trace": trace,
+                    },
+                }
+                return
 
             if agent_step.action_type == "final_answer":
                 pending_csp_tickers = (
