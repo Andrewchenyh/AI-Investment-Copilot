@@ -490,28 +490,36 @@ Streamlit will print the local dashboard URL, normally `http://localhost:8501`.
 
 ## Docker
 
-Build the backend image:
+Docker packages the FastAPI backend and its supporting services.
+Streamlit runs locally.
 
-```bash
-docker build -t ai-investment-copilot-api .
-```
+First complete Local Setup steps 1–3 to install dependencies and
+configure `.env`. Make sure Docker is running.
 
-Run the backend with a local environment file:
-
-```bash
-docker run --rm \
-  --env-file .env \
-  -p 8000:8000 \
-  ai-investment-copilot-api
-```
-
-Run the FastAPI backend and Redis together:
+Use Compose in place of starting Redis and FastAPI separately:
 
 ```bash
 docker compose up --build
 ```
 
-The current Docker image packages the backend. Run Streamlit separately using the local command above.
+The backend is available at http://127.0.0.1:8000.
+Compose configures the backend's Redis connection automatically.
+
+In a second terminal, activate your Python virtual environment
+and start the dashboard:
+
+```bash
+python -m streamlit run apps/streamlit_app.py
+```
+
+Open the dashboard URL printed by Streamlit, normally
+http://localhost:8501.
+
+To stop the Docker services:
+
+```bash
+docker compose down
+```
 
 ---
 
